@@ -47,4 +47,4 @@ so an application's parallel tests do not leak into each other. Do not enable it
 sections. Colours, spacing and radii come only from `src/theme.rs`. The only `unsafe` code is the
 backdrop blur's OpenGL calls in `src/kit/glass/gl.rs`.
 
-Fonts in `assets/fonts/` need a licence row in its README and the licence text beside them.
+The bundled fonts need a licence row in the fonts folder's README and the licence text beside them.
