@@ -1,0 +1,176 @@
+[package]
+name = "nectura-ui"
+description = "NecturaLabs egui component library: design tokens, themes, fonts and the component kit."
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.91"
+authors = ["NecturaLabs"]
+license = "LicenseRef-NecturaLabs-Proprietary"
+publish = false
+
+[features]
+# Exposes `kit::testkit` (an egui context and frame runner) to an application's tests.
+testkit = []
+
+[dependencies]
+eframe = { version = "0.36", default-features = false, features = ["glow"] }
+egui = "0.36"
+egui-phosphor = { version = "0.14", features = ["regular", "fill"] }
+tracing = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+# winit needs a platform backend to build; the application that uses the library picks its own.
+eframe = { version = "0.36", default-features = false, features = ["glow", "wayland", "x11"] }
+
+[lints.rust]
+# Denied, not forbidden, so the one owner-approved module can allow it: the backdrop blur's OpenGL
+# calls in src/kit/glass/gl.rs. a consumer's unsafe-code scan should fail
+# when unsafe code or an allow for it appears anywhere else.
+unsafe_code = "deny"
+rust_2018_idioms = { level = "warn", priority = -1 }
+missing_debug_implementations = "warn"
+missing_copy_implementations = "warn"
+meta_variable_misuse = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+single_use_lifetimes = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_qualifications = "warn"
+# Not enabled:
+# - unreachable_pub: canopy-app is a binary, where `pub` in a private module already means
+#   crate-visible; 1,129 of its 1,139 findings were there.
+# - let_underscore_drop: `let _ = sender.send(..)` and friends drop the value on purpose (105).
+# - unused_crate_dependencies: fires for every test target that does not use every dependency.
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+# Duplicate versions deep in the dependency tree (syn 2 and 3); only upstream releases fix them.
+multiple_crate_versions = "allow"
+
+# Pedantic lints turned off, with their finding counts when this was set up.
+# `# Errors` sections on every fallible function (103): the errors are git's, libgit2's or the
+# server's own messages, passed through unchanged, and nothing outside the workspace calls these.
+missing_errors_doc = "allow"
+# `#[must_use]` on every pure function (100): unused `Result`s are already caught by rustc.
+must_use_candidate = "allow"
+# Immediate-mode views and git sequences read top to bottom (79); splitting them is a refactor.
+too_many_lines = "allow"
+# Geometry and colour maths names its coordinates x, y, w, h, r, g, b (57).
+many_single_char_names = "allow"
+# Widget options and settings are independent switches, not states of one enum (12 structs).
+struct_excessive_bools = "allow"
+# A git client's own words are near each other: path and patch, rest and reset, list and last (13).
+similar_names = "allow"
+
+# Nursery lints that are sound on this toolchain. Left out, with findings when this was set up:
+# missing_const_for_fn (301; `const` would be a promise nothing needs), suboptimal_flops (174) and
+# imprecise_flops (they change float results, and mul_add is a slow libm call without FMA),
+# redundant_pub_crate (74; it asks for `pub` where the crate-private `pub(crate)` says more),
+# option_if_let_else (54) and or_fun_call (24; closures that read worse than the code they
+# replace), and future_not_send (nothing here is async).
+branches_sharing_code = "warn"
+clear_with_drain = "warn"
+coerce_container_to_any = "warn"
+collection_is_never_read = "warn"
+debug_assert_with_mut_call = "warn"
+derive_partial_eq_without_eq = "warn"
+empty_enums = "warn"
+equatable_if_let = "warn"
+fallible_impl_from = "warn"
+iter_on_empty_collections = "warn"
+iter_on_single_items = "warn"
+iter_with_drain = "warn"
+large_stack_frames = "warn"
+literal_string_with_formatting_args = "warn"
+needless_collect = "warn"
+needless_pass_by_ref_mut = "warn"
+non_send_fields_in_send_ty = "warn"
+path_buf_push_overwrite = "warn"
+read_zero_byte_vec = "warn"
+redundant_clone = "warn"
+set_contains_or_insert = "warn"
+significant_drop_in_scrutinee = "warn"
+significant_drop_tightening = "warn"
+single_option_map = "warn"
+string_lit_as_bytes = "warn"
+suspicious_operation_groupings = "warn"
+# The docs open with one explanatory paragraph, which this nursery lint wants cut short; for a
+# library the lint also reaches every public item (65 findings).
+too_long_first_doc_paragraph = "allow"
+trailing_empty_array = "warn"
+trait_duplication_in_bounds = "warn"
+transmute_undefined_repr = "warn"
+tuple_array_conversions = "warn"
+type_repetition_in_bounds = "warn"
+uninhabited_references = "warn"
+unnecessary_struct_initialization = "warn"
+unused_peekable = "warn"
+unused_rounding = "warn"
+use_self = "warn"
+useless_let_if_seq = "warn"
+while_float = "warn"
+
+# Restriction lints that fit a GUI and git backend. Considered and left out: float_cmp_const (exact
+# comparisons in tests are deliberate), tests_outside_test_module (fires on every integration
+# test), create_dir (exclusive creation is the point where it is used), iter_over_hash_type (the
+# loops found are order-independent), filetype_is_file (the updater copies regular files only, on
+# purpose), use_debug, wildcard_enum_match_arm (88) and unused_trait_names (36).
+# Suppressions are `#[expect(lint, reason = "...")]`, which fails once the finding is gone.
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# unwrap and expect are for tests (clippy.toml); production code propagates errors.
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"  # a panic in the app loses the user's window; return an error
+todo = "warn"  # unfinished code does not ship
+unimplemented = "warn"  # unfinished code does not ship
+dbg_macro = "warn"  # debug prints do not ship; log with tracing
+# Logging goes through tracing; the command-line entry points that must print say so.
+print_stdout = "warn"
+print_stderr = "warn"
+exit = "warn"
+# Errors reach the user with git's or the server's own message, so do not throw them away.
+map_err_ignore = "warn"
+unused_result_ok = "warn"  # `.ok();` throws an error away without saying so
+# Slicing a string at a byte offset panics inside a multi-byte character (paths, branch names).
+string_slice = "warn"
+# `assert!(r.is_ok())` hides the error a failing test should show.
+assertions_on_result_states = "warn"
+clone_on_ref_ptr = "warn"  # `Arc::clone(&x)` shows that only a pointer is copied
+rc_buffer = "warn"  # `Arc<[T]>` and `Arc<str>` share without a second allocation
+mem_forget = "warn"  # leaks resources such as locks and temporary files
+get_unwrap = "warn"  # `v[i]` says the same with a clearer panic
+lossy_float_literal = "warn"  # a literal the float type cannot hold exactly misleads
+verbose_file_reads = "warn"  # `fs::read_to_string` replaces open plus read
+try_err = "warn"  # `Err(e)?` hides an early return
+empty_structs_with_brackets = "warn"  # one spelling for unit structs
+empty_enum_variants_with_brackets = "warn"  # one spelling for unit variants
+empty_drop = "warn"  # an empty Drop impl only blocks moves out of the type
+if_then_some_else_none = "warn"  # `bool::then` says it in one expression
+unnecessary_self_imports = "warn"  # `use m::{self}` is `use m`
+rest_pat_in_fully_bound_structs = "warn"  # `..` after every field hides a field added later
+infinite_loop = "warn"  # a loop that never ends must say so with `-> !`
+self_named_module_files = "warn"  # modules with children use mod.rs, as the tree does
+str_to_string = "warn"  # `to_owned` says that a &str is copied
+string_add = "warn"  # `s + t` on Strings hides an allocation; push_str or format!
+needless_raw_strings = "warn"  # raw strings only where a quote or backslash needs them
+deref_by_slicing = "warn"  # `&v[..]` for a deref is noise
+mixed_read_write_in_expression = "warn"  # evaluation order should not decide a value
+mutex_atomic = "warn"  # an atomic is cheaper than a Mutex around a number or flag
+string_lit_chars_any = "warn"  # `matches!` on chars instead of a string search
+suspicious_xor_used_as_pow = "warn"  # `2 ^ 8` is xor, not a power
+precedence_bits = "warn"  # bit operators mixed with arithmetic need parentheses
+pathbuf_init_then_push = "warn"  # build a path with join in one expression
+redundant_type_annotations = "warn"  # a type the right-hand side names twice is noise
+unnecessary_safety_doc = "warn"  # a `# Safety` section only on unsafe functions
+undocumented_unsafe_blocks = "deny"  # every unsafe block says why it is sound (gl.rs)
+multiple_unsafe_ops_per_block = "deny"  # one operation per unsafe block (gl.rs)
+unnecessary_safety_comment = "warn"  # a SAFETY comment only where there is unsafe code

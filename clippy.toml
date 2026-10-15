@@ -1,0 +1,96 @@
+# Clippy configuration. The lint levels are in Cargo.toml ([lints]).
+
+avoid-breaking-exported-api = false
+
+# Tests may unwrap, expect, panic and print: a panic there is a failed assertion.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+
+doc-valid-idents = ["..", "AltGr", "JetBrains", "NecturaLabs", "OpenGL", "Wayland", "egui", "eframe", "egui_glow"]
+allowed-wildcard-imports = ["super"]
+[[disallowed-methods]]
+path = "egui::Color32::from_rgb"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_rgb_additive"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_rgba_premultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_rgba_unmultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_rgba_unmultiplied_const"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_gray"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_black_alpha"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_white_alpha"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_additive_luminance"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Color32::from_hex"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_rgb"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_rgba_premultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_rgba_unmultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_gray"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_luminance_alpha"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_black_alpha"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_white_alpha"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_srgba_premultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::Rgba::from_srgba_unmultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::new"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_srgba_premultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_srgba_unmultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_rgba_premultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_rgba_unmultiplied"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_additive_rgb"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_additive_srgb"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_rgb"
+reason = "colours come only from src/theme.rs"
+[[disallowed-methods]]
+path = "egui::ecolor::Hsva::from_srgb"
+reason = "colours come only from src/theme.rs"
