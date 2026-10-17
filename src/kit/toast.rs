@@ -30,6 +30,35 @@ const ENTER_SLIDE: f32 = 28.0;
 const ENTER_SCALE: f32 = 0.98;
 const EXIT_SLIDE: f32 = 24.0;
 
+/// Room between the paragraphs of a body, the layout's own gap included.
+const PARAGRAPH_GAP: f32 = theme::SM;
+
+/// A notification's text under its title. A blank line starts a paragraph: a body that lists
+/// several things sets each apart, so the eye finds where one ends.
+pub fn body_text(ui: &mut Ui, text: &str) -> Response {
+    let m = theme::metrics();
+    let color = theme::palette(ui.ctx()).text_dim;
+    ui.scope(|ui| {
+        let gap = PARAGRAPH_GAP - ui.spacing().item_spacing.y;
+        let paragraphs = text.split("\n\n").filter(|p| !p.trim().is_empty());
+        for (index, paragraph) in paragraphs.enumerate() {
+            if index > 0 {
+                ui.add_space(gap);
+            }
+            ui.add(
+                egui::Label::new(
+                    RichText::new(paragraph.trim())
+                        .size(m.meta_size)
+                        .line_height(Some((m.meta_size * BODY_LEADING).round()))
+                        .color(color),
+                )
+                .wrap(),
+            );
+        }
+    })
+    .response
+}
+
 /// What a card's user did this frame.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ToastOutput {
@@ -196,15 +225,7 @@ impl<'a> ToastCard<'a> {
                                 .truncate(),
                             );
                             if let Some(b) = self.body {
-                                ui.add(
-                                    egui::Label::new(
-                                        RichText::new(b)
-                                            .size(m.meta_size)
-                                            .line_height(Some((m.meta_size * BODY_LEADING).round()))
-                                            .color(p.text_dim),
-                                    )
-                                    .wrap(),
-                                );
+                                body_text(ui, b);
                             }
                             if let Some(f) = self.progress {
                                 ui.add_space(ACTIONS_GAP - TITLE_GAP);
@@ -448,6 +469,32 @@ mod tests {
             alert.description(),
             Some("fatal: unable to access the remote"),
             "the message is the alert's description"
+        );
+    }
+
+    /// A blank line starts a paragraph, and paragraphs sit a gap apart: a notice that lists
+    /// several things reads as a list, while a body without a blank line looks as it always did.
+    #[test]
+    fn a_body_sets_its_paragraphs_apart() {
+        let ctx = context();
+        let height = |text: &str| {
+            let mut height = 0.0;
+            run(&ctx, Vec::new(), |ui| {
+                ui.set_width(300.0);
+                ui.spacing_mut().item_spacing.y = TITLE_GAP;
+                height = body_text(ui, text).rect.height();
+            });
+            height
+        };
+        let (one, two) = (height("One."), height("Two."));
+        assert!(
+            (height("One.\nTwo.") - (one + two)).abs() < 1.0,
+            "lines of one paragraph follow each other"
+        );
+        let apart = height("One.\n\nTwo.");
+        assert!(
+            (apart - (one + two + PARAGRAPH_GAP)).abs() < 1.0,
+            "{apart} is {one} and {two} with {PARAGRAPH_GAP} between"
         );
     }
 
