@@ -252,12 +252,16 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             ),
             None => ui.available_width(),
         };
-        // The chosen option is shown whole, with its tag, up to the host's width.
-        let width = match self.options.iter().position(|(v, _)| v == self.value) {
-            Some(i) => {
-                let tag = self
-                    .note_of(i)
-                    .map_or(0.0, |note| Badge::new(note).measure(ui).x + ITEM_PAD);
+        // A chosen unavailable option is shown whole, with its tag, up to the host's width; any
+        // other choice keeps the width it was given and is cut short if it does not fit.
+        let width = match self
+            .options
+            .iter()
+            .position(|(v, _)| v == self.value)
+            .and_then(|i| Some((i, self.note_of(i)?)))
+        {
+            Some((i, note)) => {
+                let tag = Badge::new(note).measure(ui).x + ITEM_PAD;
                 let need = fit_width(ui, [self.options[i].1]) + tag;
                 width.max(need.min(ui.available_width()))
             }
@@ -871,7 +875,16 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             info.current_text_value = Some(value.clone());
             info
         });
-        let description = error.map(str::to_owned).or_else(|| self.helper.clone());
+        // The chosen option's note (an unavailable choice's "Not installed") follows the helper
+        // or the error, as the list's options carry theirs.
+        let note = chosen.and_then(|i| self.note_of(i));
+        let description = match (
+            error.map(str::to_owned).or_else(|| self.helper.clone()),
+            note,
+        ) {
+            (Some(d), Some(note)) => Some(format!("{d} {note}")),
+            (d, note) => d.or_else(|| note.map(str::to_owned)),
+        };
         let has_error = error.is_some();
         ctx.accesskit_node_builder(trigger.id, |n| {
             n.set_expanded(expanded);
@@ -1395,6 +1408,62 @@ mod tests {
         assert!(
             painted(&shapes, "Not installed") && painted(&shapes, "Beta"),
             "the closed control shows the unavailable choice with its tag"
+        );
+        let nodes = spoken(&ctx, |ui| {
+            show_picks(ui, &mut v);
+        });
+        let combo = nodes
+            .iter()
+            .find(|n| n.role == Role::ComboBox)
+            .expect("the closed control is a combo box");
+        assert_eq!(combo.description.as_deref(), Some("Not installed"));
+        let mut v = 0_u8;
+        let nodes = spoken(&ctx, |ui| {
+            show_picks(ui, &mut v);
+        });
+        let combo = nodes.iter().find(|n| n.role == Role::ComboBox).unwrap();
+        assert_eq!(combo.description, None, "an available choice says nothing");
+    }
+
+    /// Only a chosen unavailable option widens the trigger to show itself whole beside its tag;
+    /// any other choice keeps the width the caller gave it.
+    #[test]
+    fn only_a_tagged_choice_outgrows_an_explicit_width() {
+        let options = [
+            (0_u8, "A rather long program name"),
+            (1, "Another long name"),
+        ];
+        let width_of = |chosen: u8, tagged: bool| {
+            let ctx = testkit::ctx();
+            let mut v = chosen;
+            let mut w = 0.0;
+            frame(&ctx, Vec::new(), |ui| {
+                ui.set_width(600.0);
+                let select = Select::new(&mut v, &options).width(80.0).name("Pick");
+                let select = if tagged {
+                    select.unavailable(1, "Not installed")
+                } else {
+                    select
+                };
+                w = select.show(ui).rect.width();
+            });
+            w
+        };
+        assert!(
+            (width_of(0, false) - 80.0).abs() < 0.5,
+            "an untagged choice is cut short"
+        );
+        assert!(
+            (width_of(1, false) - 80.0).abs() < 0.5,
+            "also when others are tagged"
+        );
+        assert!(
+            (width_of(0, true) - 80.0).abs() < 0.5,
+            "an available choice among tagged ones"
+        );
+        assert!(
+            width_of(1, true) > 80.0,
+            "an unavailable choice is shown whole with its tag"
         );
     }
 
