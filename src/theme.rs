@@ -4301,6 +4301,24 @@ mod tests {
     }
 
     /// A disabled control stays readable (QA wave 1: labels at 1.3 to 2.3:1): `disabled_text` at
+    /// A muted badge (the select's "Not installed" tag) reads in `text_dim` on the neutral badge
+    /// fill: 4.5:1 (7:1 at high contrast), in every style.
+    #[test]
+    fn muted_badge_text_reads_on_the_badge_fill() {
+        let mut failures = Vec::new();
+        for p in every_palette() {
+            let min = targets(p).1;
+            for style in Style::ALL {
+                let s = p.surfaces(style);
+                let ratio = contrast(over(p.text_dim, s.badge), s.badge);
+                if ratio < min {
+                    failures.push(format!("{} {style:?}: {ratio:.2} < {min}", p.name));
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
     /// 3:1 (4.5:1 at high contrast) on every surface a disabled control is painted on, dimmer than
     /// `text_faint` so it still reads as disabled, on a neutral fill with a ring of its own.
     #[test]

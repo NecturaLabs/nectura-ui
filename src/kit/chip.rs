@@ -72,6 +72,7 @@ pub struct Badge {
     hue: Option<Color32>,
     mono: bool,
     strong: bool,
+    muted: bool,
     tooltip: Option<String>,
 }
 
@@ -83,8 +84,16 @@ impl Badge {
             hue: None,
             mono: false,
             strong: false,
+            muted: false,
             tooltip: None,
         }
+    }
+
+    /// A neutral badge in secondary text (`text_dim`), for a note that should sit behind the
+    /// words beside it. Ignored by a tinted or strong badge.
+    pub fn muted(mut self) -> Self {
+        self.muted = true;
+        self
     }
 
     pub fn tone(mut self, tone: Tone) -> Self {
@@ -141,7 +150,10 @@ impl Badge {
             return (Fill::flat(fill), p.ink(c, fill));
         }
         match self.tone {
-            Tone::Neutral => (Fill::flat(s.badge), p.text),
+            Tone::Neutral => (
+                Fill::flat(s.badge),
+                if self.muted { p.text_dim } else { p.text },
+            ),
             Tone::Danger => {
                 let fill = p.danger_badge_fill();
                 (Fill::flat(fill), p.ink(p.danger, fill))

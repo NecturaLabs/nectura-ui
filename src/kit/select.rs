@@ -116,10 +116,12 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
 
     /// The tag shown at the end of option `index`: its note when unavailable, else Recommended.
     fn tag_of(&self, index: usize) -> Option<Badge> {
-        self.note_of(index).map(Badge::new).or_else(|| {
-            (self.recommended.as_ref() == Some(&self.options[index].0))
-                .then(|| Badge::new("Recommended").tone(Tone::Accent))
-        })
+        self.note_of(index)
+            .map(|note| Badge::new(note).muted())
+            .or_else(|| {
+                (self.recommended.as_ref() == Some(&self.options[index].0))
+                    .then(|| Badge::new("Recommended").tone(Tone::Accent))
+            })
     }
 
     /// The nearest option to `from` (exclusive) in the given direction that can be chosen; with no
@@ -261,7 +263,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             .and_then(|i| Some((i, self.note_of(i)?)))
         {
             Some((i, note)) => {
-                let tag = Badge::new(note).measure(ui).x + ITEM_PAD;
+                let tag = Badge::new(note).muted().measure(ui).x + ITEM_PAD;
                 let need = fit_width(ui, [self.options[i].1]) + tag;
                 width.max(need.min(ui.available_width()))
             }
@@ -543,7 +545,9 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 painter.galley(pos2(caret_x, rect.center().y) - g.size() / 2.0, g, faint);
             }
             // A chosen option that is unavailable is dimmed, with its tag before the caret.
-            let tag = chosen.and_then(|i| self.note_of(i)).map(Badge::new);
+            let tag = chosen
+                .and_then(|i| self.note_of(i))
+                .map(|note| Badge::new(note).muted());
             let tag_room = tag.as_ref().map_or(0.0, |t| t.measure(ui).x + ITEM_PAD);
             let (text, color) = match chosen {
                 Some(i) if tag.is_some() => (self.options[i].1.to_owned(), placeholder),
@@ -1427,6 +1431,45 @@ mod tests {
         });
         let combo = nodes.iter().find(|n| n.role == Role::ComboBox).unwrap();
         assert_eq!(combo.description, None, "an available choice says nothing");
+    }
+
+    /// The "Not installed" tag, in the closed control and in the open list, is secondary text: it
+    /// sits behind the name beside it.
+    #[test]
+    fn the_unavailable_tag_is_painted_in_secondary_text() {
+        fn tag_ink(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Color32> {
+            fn walk(shape: &egui::Shape, out: &mut Vec<egui::Color32>) {
+                match shape {
+                    egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                    egui::Shape::Text(t) if t.galley.text() == "Not installed" => {
+                        out.push(t.fallback_color);
+                    }
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+            out
+        }
+        let ctx = testkit::ctx();
+        let dim = theme::palette(&ctx).text_dim;
+        let mut v = 1_u8;
+        let closed = frame(&ctx, Vec::new(), |ui| {
+            show_picks(ui, &mut v);
+        });
+        assert_eq!(tag_ink(&closed), [dim], "the closed control's tag");
+        let mut v = 0_u8;
+        let mut id = Id::NULL;
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, key(Key::ArrowDown), |ui| {
+            show_picks(ui, &mut v);
+        });
+        let open = frame(&ctx, Vec::new(), |ui| {
+            show_picks(ui, &mut v);
+        });
+        assert_eq!(tag_ink(&open), [dim, dim], "both tags in the open list");
     }
 
     /// The frame that picks an available option over an unavailable current one no longer says
