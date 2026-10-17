@@ -223,9 +223,20 @@ impl Spoken {
 }
 
 /// The AccessKit nodes one frame of `f` produced.
-pub fn spoken(ctx: &Context, mut f: impl FnMut(&mut Ui)) -> Vec<Spoken> {
+pub fn spoken(ctx: &Context, f: impl FnMut(&mut Ui)) -> Vec<Spoken> {
+    spoken_with(ctx, Vec::new(), f)
+}
+
+/// [`spoken`] for a frame that gets `events`.
+pub fn spoken_with(ctx: &Context, events: Vec<Event>, mut f: impl FnMut(&mut Ui)) -> Vec<Spoken> {
     ctx.enable_accesskit();
-    let mut out = ctx.run_ui(RawInput::default(), |ui| f(ui));
+    let mut out = ctx.run_ui(
+        RawInput {
+            events,
+            ..Default::default()
+        },
+        |ui| f(ui),
+    );
     out.textures_delta.clear();
     out.platform_output
         .accesskit_update

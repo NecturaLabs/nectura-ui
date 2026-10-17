@@ -875,9 +875,13 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             info.current_text_value = Some(value.clone());
             info
         });
-        // The chosen option's note (an unavailable choice's "Not installed") follows the helper
-        // or the error, as the list's options carry theirs.
-        let note = chosen.and_then(|i| self.note_of(i));
+        // The current option's note (an unavailable choice's "Not installed") follows the helper
+        // or the error, as the list's options carry theirs; read after a pick, not before it.
+        let note = self
+            .options
+            .iter()
+            .position(|(v, _)| v == self.value)
+            .and_then(|i| self.note_of(i));
         let description = match (
             error.map(str::to_owned).or_else(|| self.helper.clone()),
             note,
@@ -1423,6 +1427,33 @@ mod tests {
         });
         let combo = nodes.iter().find(|n| n.role == Role::ComboBox).unwrap();
         assert_eq!(combo.description, None, "an available choice says nothing");
+    }
+
+    /// The frame that picks an available option over an unavailable current one no longer says
+    /// "Not installed" of the closed control.
+    #[test]
+    fn the_description_follows_the_pick_in_the_same_frame() {
+        let ctx = testkit::ctx();
+        let mut v = 1_u8;
+        let mut id = Id::NULL;
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, key(Key::ArrowDown), |ui| {
+            show_picks(ui, &mut v);
+        });
+        frame(&ctx, Vec::new(), |ui| {
+            show_picks(ui, &mut v);
+        });
+        let nodes = testkit::spoken_with(&ctx, key(Key::Enter), |ui| {
+            show_picks(ui, &mut v);
+        });
+        assert_ne!(v, 1, "an available option was picked");
+        let combo = nodes
+            .iter()
+            .find(|n| n.role == Role::ComboBox)
+            .expect("the closed control is a combo box");
+        assert_eq!(combo.description, None, "{combo:?}");
     }
 
     /// Only a chosen unavailable option widens the trigger to show itself whole beside its tag;
