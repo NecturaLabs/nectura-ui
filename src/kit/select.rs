@@ -57,6 +57,8 @@ pub struct Select<'a, T: PartialEq + Clone> {
     recommended: Option<T>,
     /// Accessible descriptions of options, read after the name (a note the label already shows).
     described: Vec<(T, &'a str)>,
+    /// Options that cannot be chosen, with the tag that says why.
+    unavailable: Vec<(T, &'a str)>,
     report_reselection: bool,
     /// In the order listed: the recommended value first.
     options: std::borrow::Cow<'a, [(T, &'a str)]>,
@@ -83,6 +85,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             value,
             recommended: None,
             described: Vec::new(),
+            unavailable: Vec::new(),
             report_reselection: false,
             options: std::borrow::Cow::Borrowed(options),
             label: None,
@@ -102,6 +105,35 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             force: None,
         }
     }
+    /// The tag of option `index` when it is unavailable.
+    fn note_of(&self, index: usize) -> Option<&'a str> {
+        let value = &self.options[index].0;
+        self.unavailable
+            .iter()
+            .find(|(v, _)| v == value)
+            .map(|(_, note)| *note)
+    }
+
+    /// The tag shown at the end of option `index`: its note when unavailable, else Recommended.
+    fn tag_of(&self, index: usize) -> Option<Badge> {
+        self.note_of(index).map(Badge::new).or_else(|| {
+            (self.recommended.as_ref() == Some(&self.options[index].0))
+                .then(|| Badge::new("Recommended").tone(Tone::Accent))
+        })
+    }
+
+    /// The nearest option to `from` (exclusive) in the given direction that can be chosen; with no
+    /// `from`, the first or the last one.
+    fn available_from(&self, from: Option<usize>, forward: bool) -> Option<usize> {
+        let n = self.options.len();
+        let mut indices: Box<dyn Iterator<Item = usize>> = if forward {
+            Box::new(from.map_or(0, |i| i + 1)..n)
+        } else {
+            Box::new((0..from.unwrap_or(n)).rev())
+        };
+        indices.find(|&i| self.note_of(i).is_none())
+    }
+
     /// Marks this value with a Recommended badge in the list and an accessible description, and
     /// lists it first.
     pub fn recommended(mut self, value: T) -> Self {
@@ -117,6 +149,14 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
     /// label already carries in text ("kitty (Default)").
     pub fn described(mut self, value: T, description: &'a str) -> Self {
         self.described.push((value, description));
+        self
+    }
+    /// Marks `value` as unavailable ("Not installed"): listed dimmed with `note` as its tag, passed
+    /// over by the arrow keys, Home, End and typing, not chosen by a click or Enter, and spoken as
+    /// disabled with `note` as its description. It can still be the select's current value (a saved
+    /// choice that has gone), which the closed control shows the same way.
+    pub fn unavailable(mut self, value: T, note: &'a str) -> Self {
+        self.unavailable.push((value, note));
         self
     }
     /// Reports an explicit selection even when it equals the current value, for pinning an
@@ -211,6 +251,17 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                     .chain([self.placeholder.as_str()]),
             ),
             None => ui.available_width(),
+        };
+        // The chosen option is shown whole, with its tag, up to the host's width.
+        let width = match self.options.iter().position(|(v, _)| v == self.value) {
+            Some(i) => {
+                let tag = self
+                    .note_of(i)
+                    .map_or(0.0, |note| Badge::new(note).measure(ui).x + ITEM_PAD);
+                let need = fit_width(ui, [self.options[i].1]) + tag;
+                width.max(need.min(ui.available_width()))
+            }
+            None => width,
         };
         self.width = Some(width);
         let id = self
@@ -329,11 +380,12 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                         open && i.consume_key(Modifiers::NONE, Key::End),
                     )
                 });
-                let last = self.options.len().saturating_sub(1);
                 if !open && (down || up || key_click) {
                     set_open = Some(true);
                     st = ListState {
-                        highlight: chosen.or(Some(0)),
+                        highlight: chosen
+                            .filter(|&i| self.note_of(i).is_none())
+                            .or_else(|| self.available_from(None, true)),
                         by_keyboard: true,
                         opened_by_keyboard: true,
                         ..ListState::default()
@@ -343,15 +395,18 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                     // Whatever opened the list, a key puts the highlight in charge of the scroll.
                     st.by_keyboard |= down || up || home || end;
                     if down {
-                        st.highlight = Some(at.map_or(0, |i| (i + 1).min(last)));
+                        st.highlight = self.available_from(at, true).or(at);
                     } else if up {
-                        st.highlight = Some(at.map_or(last, |i| i.saturating_sub(1)));
+                        st.highlight = self.available_from(at, false).or(at);
                     } else if home {
-                        st.highlight = Some(0);
+                        st.highlight = self.available_from(None, true).or(st.highlight);
                     } else if end {
-                        st.highlight = Some(last);
+                        st.highlight = self.available_from(None, false).or(st.highlight);
                     } else if key_click {
-                        picked = st.highlight.or(chosen);
+                        picked = st
+                            .highlight
+                            .or(chosen)
+                            .filter(|&i| self.note_of(i).is_none());
                         set_open = Some(false);
                     }
                     if ui.input(|i| i.key_pressed(Key::Escape)) {
@@ -375,11 +430,9 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                         }
                         st.typed.push_str(&typed.to_lowercase());
                         st.typed_at = now;
-                        if let Some(i) = self
-                            .options
-                            .iter()
-                            .position(|(_, l)| l.to_lowercase().starts_with(&st.typed))
-                        {
+                        if let Some(i) = self.options.iter().enumerate().position(|(i, (_, l))| {
+                            self.note_of(i).is_none() && l.to_lowercase().starts_with(&st.typed)
+                        }) {
                             st.highlight = Some(i);
                             st.by_keyboard = true;
                         }
@@ -485,11 +538,23 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 );
                 painter.galley(pos2(caret_x, rect.center().y) - g.size() / 2.0, g, faint);
             }
+            // A chosen option that is unavailable is dimmed, with its tag before the caret.
+            let tag = chosen.and_then(|i| self.note_of(i)).map(Badge::new);
+            let tag_room = tag.as_ref().map_or(0.0, |t| t.measure(ui).x + ITEM_PAD);
             let (text, color) = match chosen {
+                Some(i) if tag.is_some() => (self.options[i].1.to_owned(), placeholder),
                 Some(i) => (self.options[i].1.to_owned(), text_color),
                 None => (self.placeholder.clone(), placeholder),
             };
-            let max = (rect.width() - m.field_pad_x - caret_room(m)).max(0.0);
+            if let Some(tag) = &tag {
+                let size = tag.measure(ui);
+                let right = rect.right() - caret_room(m);
+                tag.paint(
+                    ui,
+                    egui::Rect::from_center_size(pos2(right - size.x / 2.0, rect.center().y), size),
+                );
+            }
+            let max = (rect.width() - m.field_pad_x - caret_room(m) - tag_room).max(0.0);
             let mut job = egui::text::LayoutJob::simple_singleline(
                 text,
                 FontId::new(m.body_size, FontFamily::Proportional),
@@ -521,22 +586,18 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             let item_h = m.menu_item_height;
             let rows = crate::count_f32(self.options.len());
             let bounds = overlay::popup_bounds(ui);
-            let badge = Badge::new("Recommended").tone(Tone::Accent);
-            let badge_size = badge.measure(ui);
-            let recommended_width = self
-                .options
-                .iter()
-                .filter(|(value, _)| self.recommended.as_ref() == Some(value))
-                .map(|(_, label)| {
+            let tagged_width = (0..self.options.len())
+                .filter_map(|i| Some((self.tag_of(i)?, self.options[i].1)))
+                .map(|(tag, label)| {
                     ui.painter()
                         .layout_no_wrap(
-                            (*label).to_owned(),
+                            label.to_owned(),
                             FontId::new(m.body_size, theme::medium()),
                             p.text,
                         )
                         .size()
                         .x
-                        + badge_size.x
+                        + tag.measure(ui).x
                         + m.icon_sm
                         + 4.0 * ITEM_PAD
                 })
@@ -544,7 +605,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             let list_w = anchor
                 .width()
                 .max(LIST_MIN_WIDTH.min(anchor.width() + 120.0))
-                .max(recommended_width)
+                .max(tagged_width)
                 .min(bounds.width());
             let visible = rows.min(LIST_ROWS);
             let desired_h = visible * item_h + 2.0 * m.menu_pad;
@@ -656,15 +717,20 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                         .skip(range.start)
                         .take(range.len())
                     {
-                        let (row, r) =
-                            ui.allocate_exact_size(vec2(inner.width(), item_h), Sense::click());
-                        if r.hovered() && ui.input(|i| i.pointer.is_moving()) {
+                        let note = self.note_of(i);
+                        let sense = if note.is_some() {
+                            Sense::hover()
+                        } else {
+                            Sense::click()
+                        };
+                        let (row, r) = ui.allocate_exact_size(vec2(inner.width(), item_h), sense);
+                        if note.is_none() && r.hovered() && ui.input(|i| i.pointer.is_moving()) {
                             st.highlight = Some(i);
                             st.by_keyboard = false;
                         }
                         let on = chosen == Some(i);
                         let radius = CornerRadius::same(m.radius_lg.saturating_sub(5).max(3));
-                        if st.highlight == Some(i) {
+                        if note.is_none() && st.highlight == Some(i) {
                             ui.painter().rect_filled(row, radius, p.hover_strong());
                         }
                         let font = if on {
@@ -672,22 +738,29 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                         } else {
                             FontId::new(m.body_size, FontFamily::Proportional)
                         };
-                        let recommended = self.recommended.as_ref() == Some(value);
+                        let recommended =
+                            note.is_none() && self.recommended.as_ref() == Some(value);
                         let check_left = row.right() - ITEM_PAD - m.icon_sm;
-                        let text_right = if recommended {
-                            let badge_rect = egui::Rect::from_center_size(
-                                pos2(check_left - ITEM_PAD - badge_size.x / 2.0, row.center().y),
-                                badge_size,
+                        let text_right = if let Some(tag) = self.tag_of(i) {
+                            let size = tag.measure(ui);
+                            let tag_rect = egui::Rect::from_center_size(
+                                pos2(check_left - ITEM_PAD - size.x / 2.0, row.center().y),
+                                size,
                             );
-                            badge.paint(ui, badge_rect);
-                            badge_rect.left() - ITEM_PAD
+                            tag.paint(ui, tag_rect);
+                            tag_rect.left() - ITEM_PAD
                         } else {
                             check_left - ITEM_PAD
+                        };
+                        let ink = if note.is_some() {
+                            p.disabled_text
+                        } else {
+                            p.text
                         };
                         let mut job = egui::text::LayoutJob::simple_singleline(
                             (*label).to_owned(),
                             font,
-                            p.text,
+                            ink,
                         );
                         job.wrap = egui::text::TextWrapping::truncate_at_width(
                             (text_right - row.left() - ITEM_PAD).max(0.0),
@@ -699,7 +772,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                                 row.center().y - galley.size().y / 2.0,
                             ),
                             galley,
-                            p.text,
+                            ink,
                         );
                         if on {
                             ui.painter().text(
@@ -720,7 +793,10 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                             n.set_role(Role::ListBoxOption);
                             n.clear_toggled();
                             n.set_selected(on);
-                            if recommended {
+                            if let Some(note) = note {
+                                n.set_disabled();
+                                n.set_description(note);
+                            } else if recommended {
                                 n.set_description("Recommended");
                             } else if let Some((_, note)) =
                                 self.described.iter().find(|(v, _)| v == value)
@@ -909,6 +985,14 @@ pub fn fit_width<'l>(ui: &Ui, labels: impl IntoIterator<Item = &'l str>) -> f32 
 
 // ------------------------------------------------------------------------------------- gallery
 
+const PROGRAMS: [(u8, &str); 5] = [
+    (0, "kitty (Default)"),
+    (1, "Foot"),
+    (2, "Alacritty"),
+    (3, "Konsole"),
+    (4, "Custom command…"),
+];
+
 const STRATEGIES: [(u8, &str); 3] = [
     (0, "Merge (fast-forward if possible)"),
     (1, "Rebase"),
@@ -967,6 +1051,35 @@ pub(crate) fn gallery(ui: &mut Ui) {
     ui.add_space(
         3.0 * theme::metrics().menu_item_height + 2.0 * theme::metrics().menu_pad + theme::MD,
     );
+    gallery_caption(
+        ui,
+        "Unavailable options, open: dimmed with a tag, passed over by the keys, never chosen",
+    );
+    Select::new(&mut 0_u8, &PROGRAMS)
+        .unavailable(2, "Not installed")
+        .unavailable(3, "Not installed")
+        .width(280.0)
+        .id_salt("g-sel8")
+        .show_forced(
+            ui,
+            ForceState {
+                open: true,
+                ..ForceState::default()
+            },
+        );
+    ui.add_space(
+        5.0 * theme::metrics().menu_item_height + 2.0 * theme::metrics().menu_pad + theme::MD,
+    );
+    gallery_caption(ui, "A saved choice that has gone, closed");
+    gallery_row(ui, |ui| {
+        Select::new(&mut 2_u8, &PROGRAMS)
+            .unavailable(2, "Not installed")
+            .unavailable(3, "Not installed")
+            .width(280.0)
+            .id_salt("g-sel9")
+            .show(ui);
+    });
+    ui.add_space(theme::SM);
     let w = 160.0;
     gallery_caption(ui, "Hover, focus, disabled");
     gallery_row(ui, |ui| {
@@ -1153,6 +1266,134 @@ mod tests {
                 (Some("Foot"), None),
                 (Some("kitty (Default)"), Some("Default"))
             ]
+        );
+    }
+
+    const PICKS: [(u8, &str); 4] = [(0, "Alpha"), (1, "Beta"), (2, "Gamma"), (3, "Delta")];
+
+    /// Beta and Gamma are listed but cannot be chosen.
+    fn show_picks(ui: &mut Ui, v: &mut u8) -> Response {
+        Select::new(v, &PICKS)
+            .unavailable(1, "Not installed")
+            .unavailable(2, "Not installed")
+            .name("Pick")
+            .id_salt("u")
+            .show(ui)
+    }
+
+    /// The arrow keys, Home, End and typing pass over unavailable options, and Enter chooses only
+    /// an available one.
+    #[test]
+    fn the_keyboard_passes_over_unavailable_options() {
+        let ctx = testkit::ctx();
+        let mut v = 0_u8;
+        let mut id = Id::NULL;
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, key(Key::ArrowDown), |ui| {
+            id = show_picks(ui, &mut v).id;
+        });
+        assert!(open_id(&ctx));
+        // Down from Alpha lands on Delta, past Beta and Gamma.
+        for k in [
+            Key::ArrowDown,
+            Key::ArrowUp,
+            Key::End,
+            Key::Home,
+            Key::ArrowDown,
+        ] {
+            frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+            frame(&ctx, key(k), |ui| id = show_picks(ui, &mut v).id);
+        }
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, key(Key::Enter), |ui| id = show_picks(ui, &mut v).id);
+        assert_eq!(v, 3, "Delta, never Beta or Gamma");
+        // Up opens the list at Delta and, past Gamma and Beta, goes to Alpha. Typing "g" would match
+        // Gamma, which is unavailable: the highlight stays on Alpha.
+        for k in [key(Key::ArrowUp), key(Key::ArrowUp)] {
+            frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+            frame(&ctx, k, |ui| id = show_picks(ui, &mut v).id);
+        }
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, vec![Event::Text("g".to_owned())], |ui| {
+            id = show_picks(ui, &mut v).id;
+        });
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, key(Key::Enter), |ui| id = show_picks(ui, &mut v).id);
+        assert_eq!(
+            v, 0,
+            "Alpha: the arrows passed over Gamma and Beta, typing did not reach Gamma"
+        );
+    }
+
+    #[test]
+    fn a_click_on_an_unavailable_option_chooses_nothing() {
+        let ctx = testkit::ctx();
+        let mut v = 0_u8;
+        let mut rect = egui::Rect::NOTHING;
+        frame(&ctx, Vec::new(), |ui| rect = show_picks(ui, &mut v).rect);
+        testkit::click(&ctx, rect.center(), |ui| {
+            show_picks(ui, &mut v);
+        });
+        for _ in 0..2 {
+            frame(&ctx, Vec::new(), |ui| {
+                show_picks(ui, &mut v);
+            });
+        }
+        let m = theme::metrics();
+        let row = |index: f32| {
+            pos2(
+                rect.center().x,
+                rect.bottom() + LIST_GAP + m.menu_pad + (index + 0.5) * m.menu_item_height,
+            )
+        };
+        testkit::click(&ctx, row(1.0), |ui| {
+            show_picks(ui, &mut v);
+        });
+        assert_eq!(v, 0, "Beta is not chosen");
+        assert!(open_id(&ctx), "and the list stays open");
+        testkit::click(&ctx, row(3.0), |ui| {
+            show_picks(ui, &mut v);
+        });
+        assert_eq!(v, 3, "Delta is");
+    }
+
+    /// An unavailable option is spoken as disabled, with its tag as the description, and the
+    /// closed control of a select whose current value is one shows the tag.
+    #[test]
+    fn unavailable_options_are_spoken_and_shown_as_such() {
+        let ctx = testkit::ctx();
+        let mut v = 0_u8;
+        let mut id = Id::NULL;
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&ctx, Vec::new(), |ui| id = show_picks(ui, &mut v).id);
+        frame(&ctx, key(Key::ArrowDown), |ui| {
+            id = show_picks(ui, &mut v).id;
+        });
+        let nodes = spoken(&ctx, |ui| {
+            show_picks(ui, &mut v);
+        });
+        let option = |label: &str| {
+            nodes
+                .iter()
+                .find(|n| n.role == Role::ListBoxOption && n.label.as_deref() == Some(label))
+                .unwrap_or_else(|| panic!("no option {label}"))
+        };
+        assert!(option("Beta").disabled);
+        assert_eq!(option("Beta").description.as_deref(), Some("Not installed"));
+        assert!(!option("Alpha").disabled);
+        assert_eq!(option("Alpha").description, None);
+
+        let ctx = testkit::ctx();
+        let mut v = 1_u8;
+        let shapes = frame(&ctx, Vec::new(), |ui| {
+            show_picks(ui, &mut v);
+        });
+        assert!(
+            painted(&shapes, "Not installed") && painted(&shapes, "Beta"),
+            "the closed control shows the unavailable choice with its tag"
         );
     }
 
