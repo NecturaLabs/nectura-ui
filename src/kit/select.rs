@@ -1437,8 +1437,8 @@ mod tests {
     /// sits behind the name beside it.
     #[test]
     fn the_unavailable_tag_is_painted_in_secondary_text() {
-        fn tag_ink(shapes: &[egui::epaint::ClippedShape]) -> Vec<egui::Color32> {
-            fn walk(shape: &egui::Shape, out: &mut Vec<egui::Color32>) {
+        fn tag_ink(shapes: &[egui::epaint::ClippedShape]) -> Vec<Color32> {
+            fn walk(shape: &egui::Shape, out: &mut Vec<Color32>) {
                 match shape {
                     egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
                     egui::Shape::Text(t) if t.galley.text() == "Not installed" => {
@@ -1448,7 +1448,9 @@ mod tests {
                 }
             }
             let mut out = Vec::new();
-            shapes.iter().for_each(|c| walk(&c.shape, &mut out));
+            for c in shapes {
+                walk(&c.shape, &mut out);
+            }
             out
         }
         let ctx = testkit::ctx();
