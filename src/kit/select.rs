@@ -600,6 +600,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                         + tag.measure(ui).x
                         + m.icon_sm
                         + 4.0 * ITEM_PAD
+                        + 2.0 * m.menu_pad
                 })
                 .fold(0.0, f32::max);
             let list_w = anchor
@@ -1395,6 +1396,44 @@ mod tests {
             painted(&shapes, "Not installed") && painted(&shapes, "Beta"),
             "the closed control shows the unavailable choice with its tag"
         );
+    }
+
+    /// A list wide enough for an unavailable option's label and its tag shows the label whole.
+    #[test]
+    fn an_unavailable_option_keeps_its_whole_label_beside_its_tag() {
+        fn elided(shape: &egui::Shape, label: &str) -> Option<bool> {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().find_map(|s| elided(s, label)),
+                egui::Shape::Text(t) if t.galley.text() == label => Some(t.galley.elided),
+                _ => None,
+            }
+        }
+        let ctx = testkit::ctx();
+        let options = [(0_u8, "Alpha"), (1, "GNOME Terminal"), (2, "Xfce Terminal")];
+        let mut v = 0_u8;
+        let show_it = |ui: &mut Ui, v: &mut u8| {
+            Select::new(v, &options)
+                .unavailable(1, "Not installed")
+                .unavailable(2, "Not installed")
+                .width(120.0)
+                .name("Pick")
+                .id_salt("w")
+                .show(ui)
+        };
+        let mut id = Id::NULL;
+        frame(&ctx, Vec::new(), |ui| id = show_it(ui, &mut v).id);
+        ctx.memory_mut(|m| m.request_focus(id));
+        frame(&ctx, Vec::new(), |ui| id = show_it(ui, &mut v).id);
+        frame(&ctx, key(Key::ArrowDown), |ui| {
+            show_it(ui, &mut v);
+        });
+        let shapes = frame(&ctx, Vec::new(), |ui| {
+            show_it(ui, &mut v);
+        });
+        for label in ["GNOME Terminal", "Xfce Terminal"] {
+            let state = shapes.iter().find_map(|c| elided(&c.shape, label));
+            assert_eq!(state, Some(false), "{label} is painted whole");
+        }
     }
 
     /// REVIEW-KIT-11: a long list (every branch) builds only the rows in view.
