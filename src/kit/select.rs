@@ -83,6 +83,8 @@ pub struct Select<'a, T: PartialEq + Clone> {
     id_salt: Option<Id>,
     id: Option<Id>,
     force: Option<ForceState>,
+    /// The last option stays below the scrolling rows, always in view.
+    pin_last: bool,
 }
 
 impl<'a, T: PartialEq + Clone> Select<'a, T> {
@@ -109,6 +111,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             id_salt: None,
             id: None,
             force: None,
+            pin_last: false,
         }
     }
     /// The tag of option `index` when it is unavailable.
@@ -189,6 +192,13 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
     /// inherited setting. Ordinary selects report only a different value.
     pub fn report_reselection(mut self) -> Self {
         self.report_reselection = true;
+        self
+    }
+    /// Keeps the last option in view below the others, past a separator, however long the list
+    /// is: a way out such as "Custom command…" after a list of programs. The keys still reach it
+    /// in order.
+    pub fn pin_last(mut self) -> Self {
+        self.pin_last = true;
         self
     }
     /// A label above the trigger (also its accessible name).
@@ -723,8 +733,15 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             let bounds = overlay::popup_bounds(ui);
             let rows = crate::count_f32(self.options.len());
             let (list_w, item_h) = self.list_size(ui, popup_id, rect.width(), bounds.width());
-            let visible = rows.min(LIST_ROWS);
-            let desired_h = visible * item_h + 2.0 * m.menu_pad;
+            let pin = self.pin_last && self.options.len() > 1;
+            let pin_h = if pin {
+                item_h + super::menu::SEPARATOR_HEIGHT
+            } else {
+                0.0
+            };
+            // The pinned row has its own place below the scrolling ones.
+            let visible = (rows - if pin { 1.0 } else { 0.0 }).min(LIST_ROWS);
+            let desired_h = visible * item_h + pin_h + 2.0 * m.menu_pad;
             let below = (bounds.bottom() - anchor.bottom() - LIST_GAP).max(0.0);
             let above = (anchor.top() - LIST_GAP - bounds.top()).max(0.0);
             let opens_below = desired_h <= below || below >= above;
@@ -804,14 +821,23 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 super::a11y::group(&child, Role::ListBox, &list_name);
                 child.spacing_mut().item_spacing.y = 0.0;
                 let mut chose = None;
+                // The pinned row needs a scrolling row above it; a host too short for both
+                // scrolls them all.
+                let pinned = (pin && inner.height() >= item_h + pin_h).then(|| options.len() - 1);
+                let scrolled = pinned.unwrap_or(options.len());
                 let scroll_id = popup_id.with("scroll");
                 let mut area = egui::ScrollArea::vertical()
                     .id_salt(scroll_id)
-                    .max_height(inner.height())
+                    .max_height(inner.height() - if pinned.is_some() { pin_h } else { 0.0 })
                     .auto_shrink([false, true]);
+                if pinned.is_some() {
+                    // Egui keeps a scrolling area at least 64 points tall; with a pinned row
+                    // below it, one row is enough, so the pinned row stays inside the list.
+                    area = area.min_scrolled_height(item_h);
+                }
                 // Only the rows in view are built (a list of every branch can be long), so the
                 // row the keyboard moved to is brought into view by the offset, not by the row.
-                if let Some(i) = st.highlight.filter(|_| st.by_keyboard) {
+                if let Some(i) = st.highlight.filter(|i| st.by_keyboard && *i < scrolled) {
                     // The scroll area hashes its salt once more to name its state.
                     let offset = egui::scroll_area::State::load(
                         ui.ctx(),
@@ -819,7 +845,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                     )
                     .map_or(0.0, |state| state.offset.y);
                     let top = crate::count_f32(i) * item_h;
-                    let view = inner.height();
+                    let view = inner.height() - if pinned.is_some() { pin_h } else { 0.0 };
                     let to = if top < offset {
                         top
                     } else if top + item_h > offset + view {
@@ -831,12 +857,8 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                         area = area.vertical_scroll_offset(to);
                     }
                 }
-                let out = area.show_rows(&mut child, item_h, options.len(), |ui, range| {
-                    for (i, (value, label)) in options
-                        .iter()
-                        .enumerate()
-                        .skip(range.start)
-                        .take(range.len())
+                let mut row_at = |ui: &mut Ui, i: usize| {
+                    let (value, label) = &options[i];
                     {
                         let note = self.note_of(i);
                         let sense = if note.is_some() {
@@ -926,7 +948,16 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                             }
                         });
                     }
+                };
+                let out = area.show_rows(&mut child, item_h, scrolled, |ui, range| {
+                    for i in range {
+                        row_at(ui, i);
+                    }
                 });
+                if let Some(i) = pinned {
+                    super::menu::separator(&mut child);
+                    row_at(&mut child, i);
+                }
                 paint::scroll_fade(ui, &out, fill);
                 let (origin, drop) = overlay::popup_origin(list, anchor);
                 overlay::transform_since(
@@ -1211,12 +1242,14 @@ pub(crate) fn gallery(ui: &mut Ui) {
     );
     gallery_caption(
         ui,
-        "Unavailable options, open: dimmed with a tag, passed over by the keys, never chosen",
+        "Unavailable options, open: dimmed with a tag, passed over by the keys, never chosen; \
+         the last pinned below a separator",
     );
     Select::new(&mut 0_u8, &PROGRAMS)
         .unavailable(2, "Not installed")
         .unavailable(3, "Not installed")
         .width(280.0)
+        .pin_last()
         .id_salt("g-sel8")
         .show_forced(
             ui,
@@ -1226,7 +1259,10 @@ pub(crate) fn gallery(ui: &mut Ui) {
             },
         );
     ui.add_space(
-        5.0 * theme::metrics().menu_item_height + 2.0 * theme::metrics().menu_pad + theme::MD,
+        5.0 * theme::metrics().menu_item_height
+            + super::menu::SEPARATOR_HEIGHT
+            + 2.0 * theme::metrics().menu_pad
+            + theme::MD,
     );
     gallery_caption(
         ui,
@@ -1798,6 +1834,158 @@ mod tests {
                 .any(|n| n.label.as_deref() == Some("branch-1999")),
             "the last row is in view"
         );
+    }
+
+    /// #280: a pinned last option ("Custom command…" after a long list of programs) is in view
+    /// as soon as the list opens, without scrolling; the keys still reach it in order and back.
+    #[test]
+    fn a_pinned_last_option_is_in_view_without_scrolling() {
+        let ctx = testkit::ctx();
+        let labels: Vec<String> = (0..30)
+            .map(|i| format!("program-{i}"))
+            .chain(std::iter::once("Custom command…".to_owned()))
+            .collect();
+        let options: Vec<(usize, &str)> = labels.iter().map(String::as_str).enumerate().collect();
+        let last = options.len() - 1;
+        for pinned in [false, true] {
+            let mut v = 0_usize;
+            let show_list = |ui: &mut Ui, v: &mut usize| {
+                let select = Select::new(v, &options)
+                    .name("Terminal")
+                    .id_salt(("pinned", pinned));
+                if pinned { select.pin_last() } else { select }.show(ui)
+            };
+            let mut id = Id::NULL;
+            frame(&ctx, Vec::new(), |ui| id = show_list(ui, &mut v).id);
+            ctx.memory_mut(|m| m.request_focus(id));
+            frame(&ctx, Vec::new(), |ui| id = show_list(ui, &mut v).id);
+            frame(&ctx, key(Key::ArrowDown), |ui| {
+                id = show_list(ui, &mut v).id;
+            });
+            let nodes = spoken(&ctx, |ui| {
+                show_list(ui, &mut v);
+            });
+            let shown = nodes
+                .iter()
+                .any(|n| n.label.as_deref() == Some("Custom command…"));
+            assert_eq!(
+                shown, pinned,
+                "pinned {pinned}: the last row shows on opening"
+            );
+            if !pinned {
+                continue;
+            }
+            // End reaches it, Up leaves it for the row above (scrolled into view), Down comes
+            // back, Enter chooses it.
+            frame(&ctx, key(Key::End), |ui| id = show_list(ui, &mut v).id);
+            frame(&ctx, key(Key::ArrowUp), |ui| id = show_list(ui, &mut v).id);
+            frame(&ctx, Vec::new(), |ui| id = show_list(ui, &mut v).id);
+            let nodes = spoken(&ctx, |ui| {
+                show_list(ui, &mut v);
+            });
+            assert!(
+                nodes
+                    .iter()
+                    .any(|n| n.label.as_deref() == Some("program-29")),
+                "Up from the pinned row brings the row above it into view"
+            );
+            frame(&ctx, key(Key::ArrowDown), |ui| {
+                id = show_list(ui, &mut v).id;
+            });
+            frame(&ctx, key(Key::Enter), |ui| id = show_list(ui, &mut v).id);
+            assert_eq!(v, last, "Enter on the pinned row chooses it");
+        }
+    }
+
+    /// #280: a short list with its last option pinned is as tall as its rows and the separator,
+    /// with no room left over for the pinned row counted twice.
+    #[test]
+    fn a_short_pinned_list_has_no_empty_room() {
+        let ctx = testkit::ctx();
+        let options = [(0_u8, "kitty"), (1, "Foot"), (2, "Custom command…")];
+        let id = Id::new("pinned-short");
+        let mut v = 0_u8;
+        let mut draw = |ui: &mut Ui| {
+            Select::new(&mut v, &options).id(id).pin_last().show(ui);
+        };
+        frame(&ctx, Vec::new(), &mut draw);
+        ctx.memory_mut(|m| m.request_focus(trigger_id(id)));
+        frame(&ctx, key(Key::ArrowDown), &mut draw);
+        frame(&ctx, Vec::new(), &mut draw);
+        let list = egui::containers::AreaState::load(&ctx, id.with("kit-select-list"))
+            .expect("open select")
+            .rect();
+        let m = theme::metrics();
+        let want =
+            3.0 * m.menu_item_height + super::super::menu::SEPARATOR_HEIGHT + 2.0 * m.menu_pad;
+        assert!(
+            (list.height() - want).abs() < 0.5,
+            "list {} high, want {want}",
+            list.height()
+        );
+    }
+
+    /// #280: in a short window (562 points wide, as 900x560 at zoom 1.6, and shorter) the list is
+    /// limited by the window, not by its row count: wherever the control sits, the pinned row is
+    /// either inside the list or, with no room for it and a scrolling row, not drawn at all; at
+    /// the issue's size it is shown.
+    #[test]
+    fn a_pinned_row_stays_inside_a_list_the_window_limits() {
+        let labels: Vec<String> = (0..13)
+            .map(|i| format!("program-{i}"))
+            .chain(std::iter::once("Custom command…".to_owned()))
+            .collect();
+        let options: Vec<(usize, &str)> = labels.iter().map(String::as_str).enumerate().collect();
+        for screen_h in [100_u16, 150, 200, 250, 350] {
+            for top_pt in (0..screen_h.saturating_sub(40)).step_by(20) {
+                let (height, top) = (f32::from(screen_h), f32::from(top_pt));
+                let ctx = testkit::ctx();
+                let id = Id::new(("pinned-short-host", screen_h, top_pt));
+                let mut v = 0_usize;
+                let mut draw = |ui: &mut Ui| {
+                    ui.add_space(top);
+                    Select::new(&mut v, &options).id(id).pin_last().show(ui);
+                };
+                let input = |events: Vec<Event>| egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        vec2(562.0, height),
+                    )),
+                    events,
+                    ..Default::default()
+                };
+                let mut run = |events: Vec<Event>| {
+                    let mut out = ctx.run_ui(input(events), |ui| draw(ui));
+                    out.textures_delta.clear();
+                    out.shapes
+                };
+                run(Vec::new());
+                ctx.memory_mut(|m| m.request_focus(trigger_id(id)));
+                run(Vec::new());
+                run(key(Key::ArrowDown));
+                let shapes = run(Vec::new());
+                let list = egui::containers::AreaState::load(&ctx, id.with("kit-select-list"))
+                    .expect("open select")
+                    .rect();
+                let pinned: Vec<egui::Rect> = galleys(&shapes)
+                    .into_iter()
+                    .filter(|(_, g)| g.text() == "Custom command…")
+                    .map(|(at, _)| at)
+                    .collect();
+                for at in &pinned {
+                    assert!(
+                        list.expand(0.5).contains_rect(*at),
+                        "height {height}, top {top}: pinned row {at:?} outside the list {list:?}"
+                    );
+                }
+                if screen_h == 350 {
+                    assert!(
+                        !pinned.is_empty(),
+                        "top {top}: the pinned row shows at the issue's window size"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
