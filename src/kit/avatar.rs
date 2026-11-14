@@ -339,7 +339,7 @@ impl AvatarStack {
             ui.allocate_exact_size(vec2(avatars_w + badge_w, height), Sense::hover());
         if ui.is_rect_visible(rect) {
             // Each avatar sits over the one before it, its ring cutting a clean edge.
-            for i in 0..shown {
+            for (i, person) in self.people.iter().enumerate().take(shown) {
                 let c = pos2(
                     rect.left() + d / 2.0 + step * crate::count_f32(i),
                     rect.center().y,
@@ -348,7 +348,7 @@ impl AvatarStack {
                     ui.painter(),
                     c,
                     d,
-                    &self.people[i],
+                    person,
                     Some(ground),
                     Some(response.id.with(i)),
                 );
