@@ -51,6 +51,8 @@ const TRAILING_GAP: f32 = 24.0;
 pub const HEADING_HEIGHT: f32 = 24.0;
 /// Room above and below a separator.
 const SEPARATOR_SPACE: f32 = 4.0;
+/// The height [`separator`] takes: its space either side and the 1-point seam.
+pub(crate) const SEPARATOR_HEIGHT: f32 = 2.0 * SEPARATOR_SPACE + 1.0;
 
 /// Where a menu shows: decides whether disabled items hide and how the menu is laid out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -555,7 +557,7 @@ pub(crate) fn inline<R>(
 pub fn separator(ui: &mut Ui) {
     let m = theme::metrics();
     let s = theme::surfaces(ui.ctx());
-    let (rect, _) = ui.allocate_exact_size(vec2(0.0, 2.0 * SEPARATOR_SPACE + 1.0), Sense::hover());
+    let (rect, _) = ui.allocate_exact_size(vec2(0.0, SEPARATOR_HEIGHT), Sense::hover());
     let x = ui.max_rect().x_range();
     paint::seam_h(
         ui.painter(),
