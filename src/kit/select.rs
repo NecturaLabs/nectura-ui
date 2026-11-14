@@ -830,6 +830,11 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                     .id_salt(scroll_id)
                     .max_height(inner.height() - if pinned.is_some() { pin_h } else { 0.0 })
                     .auto_shrink([false, true]);
+                if pinned.is_some() {
+                    // Egui keeps a scrolling area at least 64 points tall; with a pinned row
+                    // below it, one row is enough, so the pinned row stays inside the list.
+                    area = area.min_scrolled_height(item_h);
+                }
                 // Only the rows in view are built (a list of every branch can be long), so the
                 // row the keyboard moved to is brought into view by the offset, not by the row.
                 if let Some(i) = st.highlight.filter(|i| st.by_keyboard && *i < scrolled) {
@@ -1918,6 +1923,69 @@ mod tests {
             "list {} high, want {want}",
             list.height()
         );
+    }
+
+    /// #280: in a short window (562 points wide, as 900x560 at zoom 1.6, and shorter) the list is
+    /// limited by the window, not by its row count: wherever the control sits, the pinned row is
+    /// either inside the list or, with no room for it and a scrolling row, not drawn at all; at
+    /// the issue's size it is shown.
+    #[test]
+    fn a_pinned_row_stays_inside_a_list_the_window_limits() {
+        let labels: Vec<String> = (0..13)
+            .map(|i| format!("program-{i}"))
+            .chain(std::iter::once("Custom command…".to_owned()))
+            .collect();
+        let options: Vec<(usize, &str)> = labels.iter().map(String::as_str).enumerate().collect();
+        for screen_h in [100_u16, 150, 200, 250, 350] {
+            for top_pt in (0..screen_h.saturating_sub(40)).step_by(20) {
+                let (height, top) = (f32::from(screen_h), f32::from(top_pt));
+                let ctx = testkit::ctx();
+                let id = Id::new(("pinned-short-host", screen_h, top_pt));
+                let mut v = 0_usize;
+                let mut draw = |ui: &mut Ui| {
+                    ui.add_space(top);
+                    Select::new(&mut v, &options).id(id).pin_last().show(ui);
+                };
+                let input = |events: Vec<Event>| egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        vec2(562.0, height),
+                    )),
+                    events,
+                    ..Default::default()
+                };
+                let mut run = |events: Vec<Event>| {
+                    let mut out = ctx.run_ui(input(events), |ui| draw(ui));
+                    out.textures_delta.clear();
+                    out.shapes
+                };
+                run(Vec::new());
+                ctx.memory_mut(|m| m.request_focus(trigger_id(id)));
+                run(Vec::new());
+                run(key(Key::ArrowDown));
+                let shapes = run(Vec::new());
+                let list = egui::containers::AreaState::load(&ctx, id.with("kit-select-list"))
+                    .expect("open select")
+                    .rect();
+                let pinned: Vec<egui::Rect> = galleys(&shapes)
+                    .into_iter()
+                    .filter(|(_, g)| g.text() == "Custom command…")
+                    .map(|(at, _)| at)
+                    .collect();
+                for at in &pinned {
+                    assert!(
+                        list.expand(0.5).contains_rect(*at),
+                        "height {height}, top {top}: pinned row {at:?} outside the list {list:?}"
+                    );
+                }
+                if screen_h == 350 {
+                    assert!(
+                        !pinned.is_empty(),
+                        "top {top}: the pinned row shows at the issue's window size"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
