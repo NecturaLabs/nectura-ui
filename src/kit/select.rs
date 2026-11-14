@@ -37,6 +37,9 @@ const ITEM_PAD: f32 = theme::SM;
 /// Type-ahead: the buffer clears this long after the last key.
 const TYPE_AHEAD_RESET: f64 = 1.0;
 
+/// What the closed trigger adds after the recommended value (the list marks it with a badge).
+const RECOMMENDED_SUFFIX: &str = " (Recommended)";
+
 /// What a select remembers between frames while its list is open.
 #[derive(Debug, Clone, Default)]
 struct ListState {
@@ -124,6 +127,24 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             })
     }
 
+    /// Whether the closed trigger says Recommended after option `index`: it is the recommended
+    /// value and can be chosen (an unavailable one carries its note instead).
+    fn marked_when_chosen(&self, index: usize) -> bool {
+        self.note_of(index).is_none() && self.recommended.as_ref() == Some(&self.options[index].0)
+    }
+
+    /// What the closed trigger says for option `index`: its label, and Recommended after it when
+    /// it is the recommended value, so the mark holds whether the value was chosen by hand,
+    /// written by a button or read from a file.
+    fn trigger_text(&self, index: usize) -> String {
+        let label = self.options[index].1;
+        if self.marked_when_chosen(index) {
+            format!("{label}{RECOMMENDED_SUFFIX}")
+        } else {
+            label.to_owned()
+        }
+    }
+
     /// The nearest option to `from` (exclusive) in the given direction that can be chosen; with no
     /// `from`, the first or the last one.
     fn available_from(&self, from: Option<usize>, forward: bool) -> Option<usize> {
@@ -136,8 +157,8 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
         indices.find(|&i| self.note_of(i).is_none())
     }
 
-    /// Marks this value with a Recommended badge in the list and an accessible description, and
-    /// lists it first.
+    /// Marks this value with a Recommended badge in the list and an accessible description, lists
+    /// it first, and has the closed trigger say "(Recommended)" after it while it is the value.
     pub fn recommended(mut self, value: T) -> Self {
         if let Some(at) = self.options.iter().position(|(v, _)| *v == value)
             && at > 0
@@ -245,13 +266,22 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
     pub fn show(mut self, ui: &mut Ui) -> Response {
         let width = match self.width {
             Some(w) => w,
-            None if self.fit => fit_width(
-                ui,
-                self.options
-                    .iter()
-                    .map(|(_, l)| *l)
-                    .chain([self.placeholder.as_str()]),
-            ),
+            None if self.fit => {
+                // The recommended value is the one that grows by its mark, so the trigger is as
+                // wide for it as for the longest label, whichever is chosen.
+                let marked: Vec<String> = (0..self.options.len())
+                    .filter(|&i| self.marked_when_chosen(i))
+                    .map(|i| self.trigger_text(i))
+                    .collect();
+                fit_width(
+                    ui,
+                    self.options
+                        .iter()
+                        .map(|(_, l)| *l)
+                        .chain(marked.iter().map(String::as_str))
+                        .chain([self.placeholder.as_str()]),
+                )
+            }
             None => ui.available_width(),
         };
         // A chosen unavailable option is shown whole, with its tag, up to the host's width; any
@@ -554,6 +584,9 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 Some(i) => (self.options[i].1.to_owned(), text_color),
                 None => (self.placeholder.clone(), placeholder),
             };
+            let mark = chosen
+                .filter(|&i| self.marked_when_chosen(i))
+                .map(|_| RECOMMENDED_SUFFIX);
             if let Some(tag) = &tag {
                 let size = tag.measure(ui);
                 let right = rect.right() - caret_room(m);
@@ -563,11 +596,12 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 );
             }
             let max = (rect.width() - m.field_pad_x - caret_room(m) - tag_room).max(0.0);
-            let mut job = egui::text::LayoutJob::simple_singleline(
-                text,
-                FontId::new(m.body_size, FontFamily::Proportional),
-                color,
-            );
+            let font = FontId::new(m.body_size, FontFamily::Proportional);
+            let mut job = egui::text::LayoutJob::simple_singleline(text, font.clone(), color);
+            if let Some(mark) = mark {
+                // The mark is a note beside the value, so it reads quieter than the value does.
+                job.append(mark, 0.0, egui::TextFormat::simple(font, placeholder));
+            }
             job.wrap = egui::text::TextWrapping::truncate_at_width(max);
             let g = painter.layout_job(job);
             painter.galley(
@@ -866,8 +900,8 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
         let value = self
             .options
             .iter()
-            .find(|(v, _)| v == self.value)
-            .map_or(self.placeholder.clone(), |(_, l)| (*l).to_owned());
+            .position(|(v, _)| v == self.value)
+            .map_or_else(|| self.placeholder.clone(), |i| self.trigger_text(i));
         let name = self
             .label
             .clone()
@@ -2074,6 +2108,94 @@ mod tests {
         assert_eq!(n.label.as_deref(), Some("Pull strategy"));
         assert_eq!(n.value.as_deref(), Some("Rebase"));
         assert_eq!(n.expanded, Some(false));
+    }
+
+    /// The closed trigger says what the value is and whether it is the recommended one, however
+    /// the value came to be: `value` is the only input.
+    #[test]
+    fn the_closed_trigger_marks_the_recommended_value_and_no_other() {
+        let ctx = testkit::ctx();
+        for (value, text, marked) in [
+            (2_u8, "Fast-forward only (Recommended)", true),
+            (1, "Rebase", false),
+        ] {
+            let mut v = value;
+            let mut trigger = egui::Rect::NOTHING;
+            let shapes = frame(&ctx, Vec::new(), |ui| {
+                trigger = Select::new(&mut v, &STRATEGIES)
+                    .recommended(2)
+                    .fit_to_options()
+                    .name("Pull strategy")
+                    .id_salt(("marked", value))
+                    .show(ui)
+                    .rect;
+            });
+            assert!(
+                painted(&shapes, text),
+                "{value}: the trigger paints {text:?}"
+            );
+            assert_eq!(
+                painted(&shapes, "Fast-forward only (Recommended)"),
+                marked,
+                "{value}: the mark follows the value"
+            );
+            let nodes = spoken(&ctx, |ui| {
+                Select::new(&mut v, &STRATEGIES)
+                    .recommended(2)
+                    .name("Pull strategy")
+                    .id_salt(("marked", value))
+                    .show(ui);
+            });
+            let n = nodes
+                .iter()
+                .find(|n| n.role == Role::ComboBox)
+                .expect("a combo box");
+            assert_eq!(n.value.as_deref(), Some(text), "{value}: spoken as shown");
+            assert!(trigger.width() > 0.0, "{value}: the trigger has a width");
+        }
+    }
+
+    /// A trigger fitted to its options is as wide for the marked value as for the longest label,
+    /// so choosing the recommended value never moves the controls beside it.
+    #[test]
+    fn a_fitted_trigger_keeps_its_width_when_the_marked_value_is_chosen() {
+        let ctx = testkit::ctx();
+        let width = |value: u8| {
+            let mut v = value;
+            let mut rect = egui::Rect::NOTHING;
+            frame(&ctx, Vec::new(), |ui| {
+                ui.set_width(600.0);
+                rect = Select::new(&mut v, &STRATEGIES)
+                    .recommended(1)
+                    .fit_to_options()
+                    .id_salt("fit-marked")
+                    .show(ui)
+                    .rect;
+            });
+            rect.width()
+        };
+        assert!(
+            (width(1) - width(0)).abs() < 0.5,
+            "{} vs {}",
+            width(1),
+            width(0)
+        );
+    }
+
+    /// An unavailable recommended option carries its note, not the mark.
+    #[test]
+    fn an_unavailable_recommended_value_shows_its_note_not_the_mark() {
+        let ctx = testkit::ctx();
+        let mut v = 2_u8;
+        let shapes = frame(&ctx, Vec::new(), |ui| {
+            Select::new(&mut v, &STRATEGIES)
+                .recommended(2)
+                .unavailable(2, "Needs git 2.34")
+                .id_salt("unavailable-marked")
+                .show(ui);
+        });
+        assert!(!painted(&shapes, "Fast-forward only (Recommended)"));
+        assert!(painted(&shapes, "Fast-forward only"));
     }
 
     /// A settings row puts its control at the right in a right-to-left layout: a fixed-width
