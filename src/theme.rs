@@ -870,7 +870,7 @@ pub const OBSERVATORY: Palette = Palette {
     text: hex(0xEAEDF2),
     text_dim: hex(0xB2B9C6),
     text_faint: hex(0x9FA6B4),
-    disabled_text: hex(0x7E8490),
+    disabled_text: hex(0x8E94A0),
     accent: hex(0xA3ABFF),
     accent2: hex(0x90D9F2),
     focus: hex(0x7F89FF),
@@ -4250,21 +4250,25 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
+    /// What can sit behind a glass layer: the extremes and the primaries, each clamped by
+    /// `clamp_backdrop` as the blur is.
+    const GLASS_PROBES: [(&str, Color32); 9] = [
+        ("white", Color32::WHITE),
+        ("black", Color32::BLACK),
+        ("red", Color32::from_rgb(255, 0, 0)),
+        ("green", Color32::from_rgb(0, 255, 0)),
+        ("blue", Color32::from_rgb(0, 0, 255)),
+        ("yellow", Color32::from_rgb(255, 255, 0)),
+        ("cyan", Color32::from_rgb(0, 255, 255)),
+        ("magenta", Color32::from_rgb(255, 0, 255)),
+        ("grey", Color32::from_gray(128)),
+    ];
+
     /// Translucent surfaces keep the contrast targets over any content: the overlay at its glass
     /// opacity over nine worst-case backdrops after the shader's luminance clamp.
     #[test]
     fn glass_keeps_contrast_over_any_backdrop() {
-        let probes = [
-            ("white", Color32::WHITE),
-            ("black", Color32::BLACK),
-            ("red", Color32::from_rgb(255, 0, 0)),
-            ("green", Color32::from_rgb(0, 255, 0)),
-            ("blue", Color32::from_rgb(0, 0, 255)),
-            ("yellow", Color32::from_rgb(255, 255, 0)),
-            ("cyan", Color32::from_rgb(0, 255, 255)),
-            ("magenta", Color32::from_rgb(255, 0, 255)),
-            ("grey", Color32::from_gray(128)),
-        ];
+        let probes = GLASS_PROBES;
         let mut failures = Vec::new();
         for p in every_palette() {
             if p.glass_alpha == 0 {
@@ -4300,7 +4304,40 @@ mod tests {
         assert!(failures.is_empty(), "{}", failures.join("\n"));
     }
 
-    /// A disabled control stays readable (QA wave 1: labels at 1.3 to 2.3:1): `disabled_text` at
+    /// #281: an unavailable option in an open list names a real program ("Not installed"), so its
+    /// `disabled_text` reads at 4.5:1 on the list's surface in every built-in theme and style: the
+    /// opaque `overlay`, and the glass fill over the app's own pane or anything else the blur
+    /// can show behind it.
+    #[test]
+    fn unavailable_options_read_in_an_open_list() {
+        let mut failures = Vec::new();
+        for p in ThemeId::BUILT_IN
+            .iter()
+            .flat_map(|t| [t.palette(), t.shown_palette(true)])
+        {
+            for style in Style::ALL {
+                let s = p.surfaces(style);
+                let mut grounds = vec![
+                    ("overlay".to_owned(), s.overlay),
+                    ("glass over pane".to_owned(), over(p.glass(s), s.pane)),
+                ];
+                if p.glass_alpha > 0 {
+                    for (name, probe) in GLASS_PROBES {
+                        let backdrop = clamp_backdrop(probe, p.dark, p.glass_luminance);
+                        grounds.push((format!("glass over {name}"), over(p.glass(s), backdrop)));
+                    }
+                }
+                for (name, bg) in grounds {
+                    let ratio = contrast(p.disabled_text, bg);
+                    if ratio < 4.5 {
+                        failures.push(format!("{} {style:?} on {name}: {ratio:.2}", p.name));
+                    }
+                }
+            }
+        }
+        assert!(failures.is_empty(), "{failures:#?}");
+    }
+
     /// A muted badge (the select's "Not installed" tag) reads in `text_dim` on the neutral badge
     /// fill: 4.5:1 (7:1 at high contrast), in every style.
     #[test]
@@ -4319,6 +4356,7 @@ mod tests {
         assert!(failures.is_empty(), "{failures:#?}");
     }
 
+    /// A disabled control stays readable (QA wave 1: labels at 1.3 to 2.3:1): `disabled_text` at
     /// 3:1 (4.5:1 at high contrast) on every surface a disabled control is painted on, dimmer than
     /// `text_faint` so it still reads as disabled, on a neutral fill with a ring of its own.
     #[test]
