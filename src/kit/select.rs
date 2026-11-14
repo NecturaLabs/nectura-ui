@@ -8,6 +8,10 @@
 //! and typing jumps to the first option that starts with what was typed (the buffer clears after
 //! a second). Opening with the pointer animates in and closing fades out; from the keyboard both
 //! are instant.
+//!
+//! A select never trims a label. The trigger widens to the value it shows, up to the width the
+//! host has, and then wraps it onto more lines and grows taller; the list is as wide as its
+//! longest row, up to its host, and then wraps the long rows, every row as tall as the tallest.
 
 use egui::accesskit::{Invalid, Role};
 use egui::{
@@ -20,18 +24,17 @@ use egui_phosphor::regular as icon;
 use super::chip::Badge;
 use super::overlay::{self, Entrance, ExitMotion};
 use super::toggle::{component_id, gallery_caption, gallery_row, remembered};
-use super::{ForceState, Interact, Size, Tone, anim, field, glass, menu, paint};
+use super::{ForceState, Interact, Size, Tone, anim, field, glass, paint};
 use crate::motion;
 use crate::theme::{self, Elevation, Fill};
 
 /// The caret turns over in 0.25 s.
 const CARET_TURN: f32 = 0.25;
-/// The list: a popover's gap below the trigger, 2 wider on each side, at most 8.5 rows tall,
-/// and at least a menu's width.
+/// The list: a popover's gap below the trigger and at most 8.5 rows tall. It is as wide as its
+/// trigger or as its longest row, whichever is more, and lines up with the trigger's left edge
+/// (its right edge when it would not fit to the right).
 const LIST_GAP: f32 = overlay::POPOVER_GAP;
-const LIST_OVERHANG: f32 = 2.0;
 const LIST_ROWS: f32 = 8.5;
-const LIST_MIN_WIDTH: f32 = menu::MIN_WIDTH;
 /// Menu items: inner padding and the gap before the check.
 const ITEM_PAD: f32 = theme::SM;
 /// Type-ahead: the buffer clears this long after the last key.
@@ -284,21 +287,15 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             }
             None => ui.available_width(),
         };
-        // A chosen unavailable option is shown whole, with its tag, up to the host's width; any
-        // other choice keeps the width it was given and is cut short if it does not fit.
-        let width = match self
-            .options
-            .iter()
-            .position(|(v, _)| v == self.value)
-            .and_then(|i| Some((i, self.note_of(i)?)))
-        {
-            Some((i, note)) => {
-                let tag = Badge::new(note).muted().measure(ui).x + ITEM_PAD;
-                let need = fit_width(ui, [self.options[i].1]) + tag;
-                width.max(need.min(ui.available_width()))
-            }
-            None => width,
-        };
+        // The value shown is never cut short: the trigger widens to it (with its tag, when it is
+        // unavailable) up to the host's width, and beyond that the label wraps.
+        let current = self.options.iter().position(|(v, _)| v == self.value);
+        let text = current.map_or_else(|| self.placeholder.clone(), |i| self.trigger_text(i));
+        let tag = current.and_then(|i| self.note_of(i)).map_or(0.0, |note| {
+            Badge::new(note).muted().measure(ui).x + ITEM_PAD
+        });
+        let need = fit_width(ui, [text.as_str()]) + tag;
+        let width = width.max(need.min(ui.available_width()));
         self.width = Some(width);
         let id = self
             .id
@@ -321,6 +318,92 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             ui.ctx().request_discard("select measured");
         }
         shown.inner
+    }
+
+    /// The open list's width and the height of each of its rows, for a trigger `trigger_w` wide in
+    /// a host `bounds_w` wide. The list is as wide as its widest row (a row is its label, its tag,
+    /// the check and their padding) and no narrower than the trigger, but never wider than the
+    /// host. Where a label does not fit even then it wraps, and every row is as tall as the
+    /// tallest, so the rows stay one uniform height for the virtualised scroll.
+    ///
+    /// Whether a label wraps is not decided here by a comparison of widths: the row's height comes
+    /// from laying the label out at the room its row leaves it, the call the painter makes, so
+    /// the two agree (egui itself lets a line run 0.5 pt past its wrap width).
+    fn measure_list(&self, ui: &Ui, trigger_w: f32, bounds_w: f32) -> (f32, f32) {
+        let m = theme::metrics();
+        let ink = theme::palette(ui.ctx()).text;
+        // The widest face a label is shown in (the chosen row is medium weight).
+        let font = FontId::new(m.body_size, theme::medium());
+        // A row's width apart from its label and tag: the padding either side, the one before the
+        // check, and the check.
+        let chrome = 3.0 * ITEM_PAD + m.icon_sm;
+        let tag_room = |i: usize| {
+            self.tag_of(i)
+                .map_or(0.0, |tag| tag.measure(ui).x + ITEM_PAD)
+        };
+        let widest = self
+            .options
+            .iter()
+            .enumerate()
+            .map(|(i, (_, label))| {
+                let g = ui
+                    .painter()
+                    .layout_no_wrap((*label).to_owned(), font.clone(), ink);
+                g.size().x + tag_room(i) + chrome
+            })
+            .fold(0.0, f32::max)
+            + 2.0 * m.menu_pad;
+        let list_w = trigger_w.max(widest).min(bounds_w);
+        let mut item_h = m.menu_item_height;
+        if widest > list_w {
+            let text_w = list_w - 2.0 * m.menu_pad - chrome;
+            for (i, (_, label)) in self.options.iter().enumerate() {
+                let room = (text_w - tag_room(i)).max(1.0);
+                let wrapped = ui
+                    .painter()
+                    .layout((*label).to_owned(), font.clone(), ink, room);
+                // The padding a one-line row has above and below its text.
+                let line = wrapped.rows.first().map_or(0.0, |r| r.height());
+                let pad = ((m.menu_item_height - line) / 2.0).max(0.0);
+                item_h = item_h.max(wrapped.size().y + 2.0 * pad);
+            }
+        }
+        (list_w, item_h)
+    }
+
+    /// [`Self::measure_list`], remembered while the options, the metrics and the two widths stay
+    /// as they were: a list of every branch is not laid out again on every frame it is open.
+    fn list_size(&self, ui: &Ui, id: Id, trigger_w: f32, bounds_w: f32) -> (f32, f32) {
+        let m = theme::metrics();
+        // Every byte of every label counts (a list rebuilt each frame is new text at old
+        // addresses), so the key is a word-at-a-time multiply-and-xor over them, cheap enough to
+        // compute every frame; a collision would show a list one frame stale, never unsafe.
+        let mut key = 0_u64;
+        for (i, (value, label)) in self.options.iter().enumerate() {
+            key = mix_text(key, label);
+            key = mix_text(key, self.note_of(i).unwrap_or_default());
+            key = mix(key, u64::from(self.recommended.as_ref() == Some(value)));
+        }
+        for width in [
+            m.body_size,
+            m.menu_item_height,
+            m.menu_pad,
+            m.icon_sm,
+            ui.ctx().pixels_per_point(),
+            trigger_w,
+            bounds_w,
+        ] {
+            key = mix(key, u64::from(width.to_bits()));
+        }
+        let cache_id = id.with("kit-select-list-size");
+        if let Some((k, size)) = ui.data(|d| d.get_temp::<(u64, (f32, f32))>(cache_id))
+            && k == key
+        {
+            return size;
+        }
+        let size = self.measure_list(ui, trigger_w, bounds_w);
+        ui.data_mut(|d| d.insert_temp(cache_id, (key, size)));
+        size
     }
 
     fn show_inner(self, ui: &mut Ui, id: Id) -> Response {
@@ -354,7 +437,45 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
         } else {
             Sense::hover()
         };
-        let size = vec2(width, self.size.height());
+        // What the trigger shows is laid out first: a value wider than the control wraps onto
+        // more lines and the control grows to hold them.
+        let (placeholder, text_color) = if enabled {
+            (p.text_faint, p.text)
+        } else {
+            (p.disabled_text, p.disabled_text)
+        };
+        // A chosen option that is unavailable is dimmed, with its tag before the caret.
+        let tag = chosen
+            .and_then(|i| self.note_of(i))
+            .map(|note| Badge::new(note).muted());
+        let tag_room = tag.as_ref().map_or(0.0, |t| t.measure(ui).x + ITEM_PAD);
+        let (text, color) = match chosen {
+            Some(i) if tag.is_some() => (self.options[i].1.to_owned(), placeholder),
+            Some(i) => (self.options[i].1.to_owned(), text_color),
+            None => (self.placeholder.clone(), placeholder),
+        };
+        let mark = chosen
+            .filter(|&i| self.marked_when_chosen(i))
+            .map(|_| RECOMMENDED_SUFFIX);
+        let max = (width - m.field_pad_x - caret_room(m) - tag_room).max(1.0);
+        let font = FontId::new(m.body_size, FontFamily::Proportional);
+        let mut job = egui::text::LayoutJob::simple_singleline(text, font.clone(), color);
+        if let Some(mark) = mark {
+            // The mark is a note beside the value, so it reads quieter than the value does.
+            job.append(
+                mark,
+                0.0,
+                egui::TextFormat::simple(font.clone(), placeholder),
+            );
+        }
+        job.wrap = egui::text::TextWrapping::wrap_at_width(max);
+        let value_galley = ink.layout_job(job);
+        let one_line = ink.layout_no_wrap(String::from("Ag"), font, color).size().y;
+        let pad_y = ((self.size.height() - one_line) / 2.0).max(0.0);
+        let size = vec2(
+            width,
+            self.size.height().max(value_galley.size().y + 2.0 * pad_y),
+        );
         let (rect, mut trigger) = if self.id.is_some() {
             let rect = ui.allocate_space(size).1;
             (rect, ui.interact(rect, trigger_id(id), sense))
@@ -547,15 +668,11 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 paint::rim(&painter, rect, radius, s.disabled_edge);
             }
             // The caret brightens while the pointer is on the trigger or the list is open.
-            let (faint, placeholder, text_color) = if enabled {
-                (
-                    p.text_faint
-                        .lerp_to_gamma(p.text_dim, ist.hover.max(open_t)),
-                    p.text_faint,
-                    p.text,
-                )
+            let faint = if enabled {
+                p.text_faint
+                    .lerp_to_gamma(p.text_dim, ist.hover.max(open_t))
             } else {
-                (p.disabled_text, p.disabled_text, p.disabled_text)
+                p.disabled_text
             };
             let caret_x = rect.right() - theme::SM - m.icon_md / 2.0;
             if self.loading {
@@ -574,19 +691,6 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 );
                 painter.galley(pos2(caret_x, rect.center().y) - g.size() / 2.0, g, faint);
             }
-            // A chosen option that is unavailable is dimmed, with its tag before the caret.
-            let tag = chosen
-                .and_then(|i| self.note_of(i))
-                .map(|note| Badge::new(note).muted());
-            let tag_room = tag.as_ref().map_or(0.0, |t| t.measure(ui).x + ITEM_PAD);
-            let (text, color) = match chosen {
-                Some(i) if tag.is_some() => (self.options[i].1.to_owned(), placeholder),
-                Some(i) => (self.options[i].1.to_owned(), text_color),
-                None => (self.placeholder.clone(), placeholder),
-            };
-            let mark = chosen
-                .filter(|&i| self.marked_when_chosen(i))
-                .map(|_| RECOMMENDED_SUFFIX);
             if let Some(tag) = &tag {
                 let size = tag.measure(ui);
                 let right = rect.right() - caret_room(m);
@@ -595,21 +699,12 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                     egui::Rect::from_center_size(pos2(right - size.x / 2.0, rect.center().y), size),
                 );
             }
-            let max = (rect.width() - m.field_pad_x - caret_room(m) - tag_room).max(0.0);
-            let font = FontId::new(m.body_size, FontFamily::Proportional);
-            let mut job = egui::text::LayoutJob::simple_singleline(text, font.clone(), color);
-            if let Some(mark) = mark {
-                // The mark is a note beside the value, so it reads quieter than the value does.
-                job.append(mark, 0.0, egui::TextFormat::simple(font, placeholder));
-            }
-            job.wrap = egui::text::TextWrapping::truncate_at_width(max);
-            let g = painter.layout_job(job);
             painter.galley(
                 pos2(
                     rect.left() + m.field_pad_x,
-                    rect.center().y - g.size().y / 2.0,
+                    rect.center().y - value_galley.size().y / 2.0,
                 ),
-                g,
+                value_galley,
                 color,
             );
         }
@@ -624,32 +719,10 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             // reduced motion.
             let keyboard = st.opened_by_keyboard;
             let progress = forced_open.then(|| force.and_then(|f| f.progress).unwrap_or(1.0));
-            let anchor = rect.expand2(vec2(LIST_OVERHANG, 0.0));
-            let item_h = m.menu_item_height;
-            let rows = crate::count_f32(self.options.len());
+            let anchor = rect;
             let bounds = overlay::popup_bounds(ui);
-            let tagged_width = (0..self.options.len())
-                .filter_map(|i| Some((self.tag_of(i)?, self.options[i].1)))
-                .map(|(tag, label)| {
-                    ui.painter()
-                        .layout_no_wrap(
-                            label.to_owned(),
-                            FontId::new(m.body_size, theme::medium()),
-                            p.text,
-                        )
-                        .size()
-                        .x
-                        + tag.measure(ui).x
-                        + m.icon_sm
-                        + 4.0 * ITEM_PAD
-                        + 2.0 * m.menu_pad
-                })
-                .fold(0.0, f32::max);
-            let list_w = anchor
-                .width()
-                .max(LIST_MIN_WIDTH.min(anchor.width() + 120.0))
-                .max(tagged_width)
-                .min(bounds.width());
+            let rows = crate::count_f32(self.options.len());
+            let (list_w, item_h) = self.list_size(ui, popup_id, rect.width(), bounds.width());
             let visible = rows.min(LIST_ROWS);
             let desired_h = visible * item_h + 2.0 * m.menu_pad;
             let below = (bounds.bottom() - anchor.bottom() - LIST_GAP).max(0.0);
@@ -663,9 +736,14 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             } else {
                 bounds.height()
             });
-            let x = anchor
-                .left()
-                .clamp(bounds.left(), (bounds.right() - list_w).max(bounds.left()));
+            // Lined up with the trigger's left edge; with its right edge when the list is wider
+            // than the trigger and would not fit to the right; always inside the host.
+            let left = if anchor.left() + list_w <= bounds.right() {
+                anchor.left()
+            } else {
+                anchor.right() - list_w
+            };
+            let x = left.clamp(bounds.left(), (bounds.right() - list_w).max(bounds.left()));
             let y = if opens_below {
                 anchor.bottom() + LIST_GAP
             } else {
@@ -805,8 +883,8 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                             font,
                             ink,
                         );
-                        job.wrap = egui::text::TextWrapping::truncate_at_width(
-                            (text_right - row.left() - ITEM_PAD).max(0.0),
+                        job.wrap = egui::text::TextWrapping::wrap_at_width(
+                            (text_right - row.left() - ITEM_PAD).max(1.0),
                         );
                         let galley = ui.painter().layout_job(job);
                         ui.painter().galley(
@@ -997,6 +1075,21 @@ impl<T: PartialEq + Clone> Widget for Select<'_, T> {
     }
 }
 
+/// `text` and its length folded into `hash`, a word at a time.
+fn mix_text(mut hash: u64, text: &str) -> u64 {
+    for chunk in text.as_bytes().chunks(8) {
+        let mut word = [0_u8; 8];
+        word[..chunk.len()].copy_from_slice(chunk);
+        hash = mix(hash, u64::from_le_bytes(word));
+    }
+    mix(hash, u64::try_from(text.len()).unwrap_or(u64::MAX))
+}
+
+/// One step of the cheap hash that keys the remembered list size.
+fn mix(hash: u64, word: u64) -> u64 {
+    (hash.rotate_left(5) ^ word).wrapping_mul(0x517c_c1b7_2722_0a95)
+}
+
 /// Where the select that last had keyboard focus keeps its trigger and list.
 fn typing_id() -> Id {
     Id::new("kit-select-typing")
@@ -1053,6 +1146,15 @@ const STRATEGIES: [(u8, &str); 3] = [
     (0, "Merge (fast-forward if possible)"),
     (1, "Rebase"),
     (2, "Fast-forward only"),
+];
+
+const LONG_LABELS: [(u8, &str); 3] = [
+    (0, "Merge"),
+    (1, "Don't rebase"),
+    (
+        2,
+        "Rebase the local commits onto the remote branch and keep every merge commit",
+    ),
 ];
 
 /// The gallery's selects: live with a helper and with an error, one open, then hover, focus,
@@ -1125,6 +1227,38 @@ pub(crate) fn gallery(ui: &mut Ui) {
         );
     ui.add_space(
         5.0 * theme::metrics().menu_item_height + 2.0 * theme::metrics().menu_pad + theme::MD,
+    );
+    gallery_caption(
+        ui,
+        "A long label is never cut: the control widens to it, then wraps; the list wraps the same way",
+    );
+    gallery_row(ui, |ui| {
+        Select::new(&mut 2_u8, &LONG_LABELS)
+            .width(160.0)
+            .id_salt("g-sel10")
+            .show(ui);
+    });
+    ui.add_space(theme::SM);
+    gallery_caption(
+        ui,
+        "A narrow control, open, with the recommended entry whole",
+    );
+    let mut chosen = 0_u8;
+    let narrow = Select::new(&mut chosen, &LONG_LABELS)
+        .width(120.0)
+        .recommended(1)
+        .id_salt("g-sel11");
+    // Room for the list as it is: wrapped rows are taller than a one-line row.
+    let (_, row_h) = narrow.measure_list(ui, 120.0, overlay::popup_bounds(ui).width());
+    narrow.show_forced(
+        ui,
+        ForceState {
+            open: true,
+            ..ForceState::default()
+        },
+    );
+    ui.add_space(
+        crate::count_f32(LONG_LABELS.len()) * row_h + 2.0 * theme::metrics().menu_pad + theme::MD,
     );
     gallery_caption(ui, "A saved choice that has gone, closed");
     gallery_row(ui, |ui| {
@@ -1535,20 +1669,21 @@ mod tests {
         assert_eq!(combo.description, None, "{combo:?}");
     }
 
-    /// Only a chosen unavailable option widens the trigger to show itself whole beside its tag;
-    /// any other choice keeps the width the caller gave it.
+    /// #225: whichever option is chosen is shown whole, so a label wider than an explicit width
+    /// widens the control (up to the host), whether or not it carries a tag; a short one keeps it.
     #[test]
-    fn only_a_tagged_choice_outgrows_an_explicit_width() {
+    fn a_chosen_label_outgrows_an_explicit_width_and_a_short_one_does_not() {
         let options = [
             (0_u8, "A rather long program name"),
             (1, "Another long name"),
+            (2, "Off"),
         ];
-        let width_of = |chosen: u8, tagged: bool| {
+        let width_of = |chosen: u8, tagged: bool, host: f32| {
             let ctx = testkit::ctx();
             let mut v = chosen;
             let mut w = 0.0;
             frame(&ctx, Vec::new(), |ui| {
-                ui.set_width(600.0);
+                ui.set_width(host);
                 let select = Select::new(&mut v, &options).width(80.0).name("Pick");
                 let select = if tagged {
                     select.unavailable(1, "Not installed")
@@ -1560,20 +1695,28 @@ mod tests {
             w
         };
         assert!(
-            (width_of(0, false) - 80.0).abs() < 0.5,
-            "an untagged choice is cut short"
+            width_of(0, false, 600.0) > 150.0,
+            "a long choice is shown whole"
         );
         assert!(
-            (width_of(1, false) - 80.0).abs() < 0.5,
+            width_of(1, false, 600.0) > 100.0,
             "also when others are tagged"
         );
         assert!(
-            (width_of(0, true) - 80.0).abs() < 0.5,
+            width_of(0, true, 600.0) > 150.0,
             "an available choice among tagged ones"
         );
         assert!(
-            width_of(1, true) > 80.0,
+            width_of(1, true, 600.0) > width_of(1, false, 600.0),
             "an unavailable choice is shown whole with its tag"
+        );
+        assert!(
+            (width_of(2, false, 600.0) - 80.0).abs() < 0.5,
+            "a short choice keeps the width it was given"
+        );
+        assert!(
+            (width_of(0, false, 120.0) - 120.0).abs() < 0.5,
+            "no wider than the host: beyond it the label wraps"
         );
     }
 
@@ -2281,5 +2424,401 @@ mod tests {
             matches!(&c.shape, egui::Shape::Rect(r) if r.fill == overlay && r.blur_width == 0.0)
         });
         assert!(opaque, "the list is fully shown on its first visible frame");
+    }
+
+    /// Every galley a frame painted: where it is and what it says.
+    fn galleys(
+        shapes: &[egui::epaint::ClippedShape],
+    ) -> Vec<(egui::Rect, std::sync::Arc<egui::Galley>)> {
+        fn walk(shape: &egui::Shape, out: &mut Vec<(egui::Rect, std::sync::Arc<egui::Galley>)>) {
+            match shape {
+                egui::Shape::Vec(v) => v.iter().for_each(|s| walk(s, out)),
+                egui::Shape::Text(t) => {
+                    out.push((t.visual_bounding_rect(), std::sync::Arc::clone(&t.galley)));
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for c in shapes {
+            walk(&c.shape, &mut out);
+        }
+        out
+    }
+
+    /// Where a select in a dialog of `width` (with `before` of room above it and `after` below)
+    /// put its closed control and, once clicked open, its list.
+    struct Scene {
+        host: egui::Rect,
+        trigger: egui::Rect,
+        list: egui::Rect,
+        closed: Vec<(egui::Rect, std::sync::Arc<egui::Galley>)>,
+        open: Vec<(egui::Rect, std::sync::Arc<egui::Galley>)>,
+    }
+
+    /// The options are shown by a select of `trigger_width` (`None`: the dialog's width), with
+    /// `recommended` marked, `before` and `after` room in a dialog of `width`, `indent` from its
+    /// left edge.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "one scene, every knob the tests turn"
+    )]
+    fn scene(
+        options: &[(u8, &str)],
+        recommended: Option<u8>,
+        chosen: u8,
+        width: f32,
+        trigger_width: Option<f32>,
+        indent: f32,
+        before: f32,
+        after: f32,
+    ) -> Scene {
+        let ctx = testkit::ctx();
+        let id = Id::new("scene-select");
+        let mut value = chosen;
+        let host = std::cell::Cell::new(egui::Rect::NOTHING);
+        let trigger = std::cell::Cell::new(egui::Rect::NOTHING);
+        let mut draw = |ui: &mut Ui| {
+            host.set(
+                overlay::floating(ui, overlay::Layer::Dialog, egui::Margin::same(16), |ui| {
+                    ui.set_width(width);
+                    ui.add_space(before);
+                    ui.horizontal(|ui| {
+                        ui.add_space(indent);
+                        let mut select = Select::new(&mut value, options).id(id);
+                        if let Some(w) = trigger_width {
+                            select = select.width(w);
+                        }
+                        if let Some(r) = recommended {
+                            select = select.recommended(r);
+                        }
+                        trigger.set(select.show(ui).rect);
+                    });
+                    ui.add_space(after);
+                })
+                .response
+                .rect,
+            );
+        };
+        let mut closed = Vec::new();
+        for _ in 0..3 {
+            closed = galleys(&frame(&ctx, Vec::new(), &mut draw));
+        }
+        let at = trigger.get().center();
+        testkit::click(&ctx, at, &mut draw);
+        let mut open = Vec::new();
+        for _ in 0..3 {
+            open = galleys(&frame(&ctx, Vec::new(), &mut draw));
+        }
+        let list = egui::containers::AreaState::load(&ctx, id.with("kit-select-list"))
+            .expect("open select")
+            .rect();
+        Scene {
+            host: host.get(),
+            trigger: trigger.get(),
+            list,
+            closed,
+            open,
+        }
+    }
+
+    const LONG: &str = "Rebase the local commits onto the remote branch, keeping merge commits \
+                        and reapplying every one of them in turn";
+
+    /// The galleys that say `label`, inside `area`.
+    fn saying<'g>(
+        galleys: &'g [(egui::Rect, std::sync::Arc<egui::Galley>)],
+        label: &str,
+        area: egui::Rect,
+    ) -> Vec<&'g std::sync::Arc<egui::Galley>> {
+        galleys
+            .iter()
+            .filter(|(at, g)| g.text() == label && area.expand(1.0).contains_rect(*at))
+            .map(|(_, g)| g)
+            .collect()
+    }
+
+    /// #225: no select trims an item. A label longer than the control is shown whole in the
+    /// closed control (which widens to it) and in the open list.
+    #[test]
+    fn a_long_label_is_shown_whole_in_the_closed_control_and_the_list() {
+        let options = [(0_u8, "Off"), (1, LONG)];
+        let s = scene(&options, None, 1, 900.0, Some(120.0), 0.0, 0.0, 400.0);
+        let closed = saying(&s.closed, LONG, s.trigger);
+        assert_eq!(closed.len(), 1, "the closed control says the label");
+        assert!(
+            !closed[0].elided,
+            "the closed control shows it without an ellipsis"
+        );
+        assert_eq!(closed[0].rows.len(), 1, "on one line, as the host has room");
+        assert!(
+            s.trigger.width() > 120.0,
+            "the control widened: {:?}",
+            s.trigger
+        );
+        assert!(s.host.contains_rect(s.trigger));
+        let listed = saying(&s.open, LONG, s.list);
+        assert_eq!(listed.len(), 1, "the list says the label");
+        assert!(!listed[0].elided, "the list shows it without an ellipsis");
+        assert_eq!(listed[0].rows.len(), 1);
+    }
+
+    /// #225: when the host is too narrow for the label on one line, it wraps, in the control (which
+    /// grows taller) and in the list (every row as tall as the tallest), all inside the host.
+    #[test]
+    fn a_label_wider_than_the_host_wraps_in_both_and_stays_inside() {
+        let options = [(0_u8, "Off"), (1, LONG), (2, "Daily")];
+        let s = scene(&options, None, 1, 220.0, None, 0.0, 0.0, 260.0);
+        let one_line = Size::Lg.height();
+        let closed = saying(&s.closed, LONG, s.trigger);
+        assert_eq!(closed.len(), 1);
+        assert!(!closed[0].elided, "wrapped, not cut");
+        assert!(closed[0].rows.len() > 1, "wrapped onto more lines");
+        assert!(
+            s.trigger.height() > one_line,
+            "the control grew: {:?}",
+            s.trigger
+        );
+        assert!(
+            s.host.contains_rect(s.trigger),
+            "{:?} in {:?}",
+            s.trigger,
+            s.host
+        );
+        let listed = saying(&s.open, LONG, s.list);
+        assert_eq!(listed.len(), 1);
+        assert!(!listed[0].elided);
+        assert!(listed[0].rows.len() > 1);
+        assert!(s.host.contains_rect(s.list), "{:?} in {:?}", s.list, s.host);
+    }
+
+    /// #255: the recommended entry shows its whole label beside its badge, in a select narrower
+    /// than the label.
+    #[test]
+    fn the_recommended_entry_keeps_its_whole_label_beside_the_badge() {
+        let options = [(0_u8, "Merge"), (1, "Don't rebase"), (2, "Rebase")];
+        let s = scene(&options, Some(1), 0, 600.0, Some(90.0), 0.0, 0.0, 200.0);
+        let listed = saying(&s.open, "Don't rebase", s.list);
+        assert_eq!(listed.len(), 1, "the recommended label is in the list");
+        assert!(!listed[0].elided, "no ellipsis before the badge");
+        assert_eq!(listed[0].rows.len(), 1);
+        let badge = s
+            .open
+            .iter()
+            .find(|(at, g)| g.text() == "Recommended" && s.list.contains_rect(*at))
+            .expect("the badge");
+        let label = s
+            .open
+            .iter()
+            .find(|(at, g)| g.text() == "Don't rebase" && s.list.contains_rect(*at))
+            .unwrap();
+        assert!(
+            label.0.right() <= badge.0.left(),
+            "the label ends before the badge"
+        );
+        assert!(s.host.contains_rect(s.list));
+    }
+
+    /// The list lines up with its control: at least as wide, the same left edge; right-aligned to
+    /// the control when it would not fit to the right; inside the host either way.
+    #[test]
+    fn the_list_lines_up_with_its_control() {
+        let options = [(0_u8, "Off"), (1, "A medium length option"), (2, "Daily")];
+        // Room to the right: the left edges are equal and the list is no narrower.
+        let s = scene(&options, None, 0, 500.0, Some(160.0), 0.0, 0.0, 260.0);
+        assert!(
+            (s.list.left() - s.trigger.left()).abs() < 0.5,
+            "list {:?} trigger {:?}",
+            s.list,
+            s.trigger
+        );
+        assert!(s.list.width() >= s.trigger.width() - 0.5);
+        assert!(s.host.contains_rect(s.list));
+        // A control at the right end of a dialog whose list is wider: right edges are equal.
+        let long = [(0_u8, "Off"), (1, "A considerably longer second option")];
+        let s = scene(&long, None, 0, 400.0, Some(60.0), 340.0, 0.0, 200.0);
+        assert!(s.list.width() > s.trigger.width());
+        assert!(
+            (s.list.right() - s.trigger.right()).abs() < 0.5,
+            "list {:?} trigger {:?}",
+            s.list,
+            s.trigger
+        );
+        assert!(s.host.contains_rect(s.list), "{:?} in {:?}", s.list, s.host);
+    }
+
+    /// #255: a recommended label longer than the host still shows whole beside its badge (it wraps
+    /// in the space the badge leaves), with the badge on the first line's row.
+    #[test]
+    fn a_long_recommended_label_wraps_beside_its_badge_in_a_narrow_host() {
+        let options = [(0_u8, "Merge"), (1, LONG)];
+        let s = scene(&options, Some(1), 0, 240.0, Some(120.0), 0.0, 0.0, 300.0);
+        let listed = saying(&s.open, LONG, s.list);
+        assert_eq!(listed.len(), 1, "the recommended label is in the list");
+        assert!(!listed[0].elided, "wrapped, not cut before the badge");
+        assert!(listed[0].rows.len() > 1);
+        let badge = s
+            .open
+            .iter()
+            .find(|(at, g)| g.text() == "Recommended" && s.list.contains_rect(*at))
+            .expect("the badge");
+        let label = s
+            .open
+            .iter()
+            .find(|(at, g)| g.text() == LONG && s.list.contains_rect(*at))
+            .unwrap();
+        assert!(
+            label.0.right() <= badge.0.left(),
+            "the text stays left of the badge"
+        );
+        assert!(s.host.contains_rect(s.list), "{:?} in {:?}", s.list, s.host);
+    }
+
+    /// The height reserved for a row is exactly what the painter's layout of the label needs, at
+    /// every width around the point where the label stops fitting (egui rounds the width up to a
+    /// pixel and lets a line run 0.5 pt past its wrap width, so a label a little over still
+    /// paints on one line, and a fixed tolerance here would reserve height it never uses).
+    #[test]
+    fn a_row_is_made_taller_exactly_when_its_label_wraps() {
+        let label = "Rebase the local commits onto the remote branch";
+        let options = [(0_u8, "Off"), (1, label)];
+        let ctx = testkit::ctx();
+        let mut value = 0_u8;
+        let mut wraps_at = Vec::new();
+        frame(&ctx, Vec::new(), |ui| {
+            let m = theme::metrics();
+            let select = Select::new(&mut value, &options);
+            let font = FontId::new(m.body_size, theme::medium());
+            let natural = ui
+                .painter()
+                .layout_no_wrap(label.to_owned(), font.clone(), Color32::WHITE)
+                .size()
+                .x;
+            let whole = natural + 3.0 * ITEM_PAD + m.icon_sm + 2.0 * m.menu_pad;
+            for step in 0..=80_usize {
+                let host = whole - 2.0 + crate::count_f32(step) * 0.05;
+                let room = host - 2.0 * m.menu_pad - 3.0 * ITEM_PAD - m.icon_sm;
+                let painted =
+                    ui.painter()
+                        .layout(label.to_owned(), font.clone(), Color32::WHITE, room);
+                let reserved = select.measure_list(ui, 50.0, host).1 > m.menu_item_height;
+                assert_eq!(
+                    reserved,
+                    painted.rows.len() > 1,
+                    "host {host}: room {room} for a label {natural} wide"
+                );
+                wraps_at.push((host - whole, reserved));
+            }
+        });
+        assert!(
+            wraps_at.iter().any(|&(_, r)| r) && wraps_at.iter().any(|&(_, r)| !r),
+            "the sweep crosses the boundary"
+        );
+        assert!(
+            wraps_at
+                .iter()
+                .find(|&&(d, _)| (d + 0.3).abs() < 0.01)
+                .is_some_and(|&(_, r)| !r),
+            "0.3 pt short still paints on one line (egui rounds the width and allows 0.5 more), so no taller row is reserved"
+        );
+        assert!(
+            wraps_at
+                .iter()
+                .find(|&&(d, _)| (d + 2.0).abs() < 0.01)
+                .is_some_and(|&(_, r)| r),
+            "two points short wraps"
+        );
+    }
+
+    /// The list's measured size is remembered between frames but follows the options and the
+    /// widths when they change.
+    #[test]
+    fn the_remembered_list_size_follows_the_options_and_the_widths() {
+        let ctx = testkit::ctx();
+        let id = Id::new("remembered-size");
+        let short = [(0_u8, "Off"), (1, "Daily")];
+        let long = [
+            (0_u8, "Off"),
+            (1, "Every day, at the end of the working day"),
+        ];
+        let width_of = |options: &[(u8, &str)], trigger_w: f32, bounds_w: f32| {
+            let mut value = 0_u8;
+            let mut out = (0.0, 0.0);
+            frame(&ctx, Vec::new(), |ui| {
+                out = Select::new(&mut value, options).list_size(ui, id, trigger_w, bounds_w);
+            });
+            out
+        };
+        let a = width_of(&short, 60.0, 800.0);
+        assert_eq!(
+            a,
+            width_of(&short, 60.0, 800.0),
+            "the same inputs, the same size"
+        );
+        let b = width_of(&long, 60.0, 800.0);
+        assert!(b.0 > a.0, "longer options widen the list: {a:?} then {b:?}");
+        let c = width_of(&long, 60.0, 150.0);
+        assert!(
+            c.0 <= 150.0 && c.1 > b.1,
+            "a narrower host wraps: {b:?} then {c:?}"
+        );
+        let d = width_of(&long, 400.0, 800.0);
+        assert!(d.0 >= 400.0, "a wider trigger widens the list: {d:?}");
+        assert_eq!(width_of(&short, 60.0, 800.0), a, "and back again");
+    }
+
+    /// What the list's minimum width used to be.
+    const LIST_OLD_MIN_WIDTH: f32 = 200.0;
+
+    /// #255 as reported: a recommended label cut short before its badge ("Don't reba…") when the
+    /// list was only about as wide as the select. The list sized itself for label, badge, check and
+    /// padding but left out its own inner padding, so a label that just filled a 200-point list lost
+    /// its last letters. Here the label fills the list as nearly as it can without going over.
+    #[test]
+    fn a_recommended_label_that_just_fills_the_list_loses_no_letter() {
+        let ctx = testkit::ctx();
+        let m = theme::metrics();
+        let badge = Badge::new("Recommended").tone(Tone::Accent);
+        let mut badge_w = 0.0;
+        let mut label = String::from("Don't ");
+        frame(&ctx, Vec::new(), |ui| {
+            badge_w = badge.measure(ui).x;
+            let need = |text: &str| {
+                ui.painter()
+                    .layout_no_wrap(
+                        text.to_owned(),
+                        FontId::new(m.body_size, theme::medium()),
+                        Color32::WHITE,
+                    )
+                    .size()
+                    .x
+                    + badge_w
+                    + m.icon_sm
+                    + 4.0 * ITEM_PAD
+            };
+            // The widest label whose row, with badge, check and padding but not the list's own
+            // inner padding, still fits the 200 points a list used to be at least.
+            for c in [
+                "m", "m", "m", "m", "m", "m", "m", "m", "w", "n", "i", "i", "i", "i", ".",
+            ] {
+                let longer = format!("{label}{c}");
+                if need(&longer) <= LIST_OLD_MIN_WIDTH - 0.5 {
+                    label = longer;
+                }
+            }
+        });
+        let options = [(0_u8, "Merge"), (1, label.as_str())];
+        let s = scene(&options, Some(1), 0, 600.0, Some(120.0), 0.0, 0.0, 200.0);
+        let listed = saying(&s.open, &label, s.list);
+        assert_eq!(
+            listed.len(),
+            1,
+            "the recommended label {label:?} is in the list"
+        );
+        assert!(
+            !listed[0].elided,
+            "{label:?} is shown whole beside its badge"
+        );
+        assert_eq!(listed[0].rows.len(), 1);
     }
 }
