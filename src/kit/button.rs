@@ -975,6 +975,7 @@ pub struct HelpMark {
     about: String,
     text: String,
     notice: Option<bool>,
+    apart: bool,
 }
 
 impl HelpMark {
@@ -984,7 +985,15 @@ impl HelpMark {
             about: about.into(),
             text: text.into(),
             notice: None,
+            apart: false,
         }
+    }
+
+    /// For an info mark shown beside an explanation mark: draws it in the accent colour, so the
+    /// two cannot be mistaken for each other. A warning mark is already told apart by its colour.
+    pub fn apart(mut self) -> Self {
+        self.apart = true;
+        self
     }
 
     /// A remark about the current state instead of an explanation: an info mark, or a warning
@@ -1013,6 +1022,7 @@ impl HelpMark {
             }
             let (glyph, color) = match self.notice {
                 None => (icon::QUESTION, p.text_faint),
+                Some(false) if self.apart => (icon::INFO, p.accent),
                 Some(false) => (icon::INFO, p.text_faint),
                 Some(true) => (icon::WARNING, p.warning),
             };
@@ -2529,6 +2539,35 @@ mod tests {
         });
         let mark = testkit::find(&nodes, "About Dates").expect("the mark is named");
         assert_eq!(mark.description.as_deref(), Some(text));
+    }
+
+    /// An info mark set apart from an explanation mark beside it is drawn in the accent colour;
+    /// a plain one stays faint like the explanation mark.
+    #[test]
+    fn an_info_mark_set_apart_is_drawn_in_the_accent_colour() {
+        use crate::kit::testkit;
+        let glyph_colour = |apart: bool| {
+            let ctx = testkit::ctx();
+            let p = theme::palette(&ctx);
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                let mark = HelpMark::new("Pictures", "Shown beside authors.").notice(false);
+                let _ = if apart { mark.apart() } else { mark }.show(ui);
+            });
+            out.textures_delta.clear();
+            let colour = out
+                .shapes
+                .iter()
+                .find_map(|c| match &c.shape {
+                    Shape::Text(t) if t.galley.text() == icon::INFO => Some(t.fallback_color),
+                    _ => None,
+                })
+                .expect("the info glyph is painted");
+            (colour, p.accent, p.text_faint)
+        };
+        let (plain, _, faint) = glyph_colour(false);
+        assert_eq!(plain, faint);
+        let (apart, accent, _) = glyph_colour(true);
+        assert_eq!(apart, accent);
     }
 
     #[test]
