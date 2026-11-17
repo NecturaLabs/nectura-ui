@@ -5,7 +5,7 @@ version = "0.0.0"
 edition = "2024"
 rust-version = "1.91"
 authors = ["NecturaLabs"]
-license = "LicenseRef-NecturaLabs-Proprietary"
+license = "MIT OR Apache-2.0"
 publish = false
 
 [features]

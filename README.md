@@ -2,14 +2,14 @@
 
 NecturaLabs' egui component library: design tokens and themes, fonts, motion, in-code illustrations
 and the component kit (buttons, fields, menus, overlays, lists, tabs, toasts, glass surfaces).
-Extracted from Canopy; private. egui 0.36, Rust 2024, MSRV 1.91.
+Extracted from [Canopy](https://github.com/NecturaLabs/Canopy). egui 0.36, Rust 2024, MSRV 1.91.
 
 ## Use it
 
 Add it to your repository as a submodule and make it a path dependency:
 
 ```sh
-git submodule add git@github.com:NecturaLabs/nectura-ui.git crates/nectura-ui
+git submodule add https://github.com/NecturaLabs/nectura-ui.git crates/nectura-ui
 ```
 
 ```toml
@@ -48,3 +48,14 @@ sections. Colours, spacing and radii come only from `src/theme.rs`. The only `un
 backdrop blur's OpenGL calls in `src/kit/glass/gl.rs`.
 
 The bundled fonts need a licence row in the fonts folder's README and the licence text beside them.
+
+## Licence
+
+Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the
+[MIT License](LICENSE-MIT), at your option. Copyright (c) 2026 NecturaLabs. The bundled fonts keep
+their own licences (`assets/fonts/`).
+
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in
+nectura-ui, as defined in the Apache-2.0 licence, is dual licensed as above, without any additional
+terms or conditions. Report security problems privately through the repository's Security tab
+(Report a vulnerability) or to support@necturalabs.com, never in a public issue.
