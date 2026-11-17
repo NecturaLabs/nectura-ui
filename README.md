@@ -53,7 +53,7 @@ The bundled fonts need a licence row in the fonts folder's README and the licenc
 
 Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the
 [MIT License](LICENSE-MIT), at your option. Copyright (c) 2026 NecturaLabs. The bundled fonts keep
-their own licences (`assets/fonts/`).
+their own licences (listed in the fonts folder's README).
 
 Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in
 nectura-ui, as defined in the Apache-2.0 licence, is dual licensed as above, without any additional
