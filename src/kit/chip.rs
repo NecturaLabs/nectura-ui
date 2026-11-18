@@ -1,4 +1,4 @@
-//! Small labels: [`Badge`], [`CountBadge`], [`ChangeBadge`], [`RefPill`] and [`RefOverflow`],
+//! Small labels: [`Badge`], [`CountBadge`],
 //! [`Keycap`] and [`KeyChord`], [`StatusDot`], [`DiffStat`] and the interactive status [`Chip`]
 //! (design spec 4.17, 4.18).
 //!

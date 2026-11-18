@@ -1976,7 +1976,7 @@ mod design {
     /// colours stay in the [`Palette`].
     #[derive(Debug, Clone, Copy, PartialEq)]
     pub struct Design {
-        /// Factor on every radius of the active [`Metrics`] ([`Design::radius`]): below 1 sharper and
+        /// Factor on every radius of the active [`Metrics`](crate::theme::Metrics) ([`Design::radius`]): below 1 sharper and
         /// more technical, above 1 softer and more rounded. [`FULL`] stays full.
         pub radius_scale: f32,
         /// Width in points of seams, card edges and control rings.
@@ -2020,7 +2020,7 @@ mod design {
         Outline,
     }
 
-    /// Character of shadows, applied to every [`Material`] layer by [`Palette::material`]
+    /// Character of shadows, applied to every [`Material`](crate::theme::Material) layer by [`Palette::material`]
     /// ([`ShadowCharacter::shape`]).
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub enum ShadowCharacter {
@@ -2181,7 +2181,7 @@ mod design {
     }
 
     impl Design {
-        /// `r` (a [`Metrics`] radius) in this theme: scaled and rounded, [`FULL`] kept full, and a
+        /// `r` (a [`Metrics`](crate::theme::Metrics) radius) in this theme: scaled and rounded, [`FULL`] kept full, and a
         /// rounded corner never squared off entirely.
         pub fn radius(&self, r: u8) -> u8 {
             if r == FULL || r == 0 {

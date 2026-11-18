@@ -1,6 +1,6 @@
 //! Document tabs (concept `.h-tab`, design spec 4.8): the repository tabs in the title bar.
 //!
-//! The active tab is marked in the theme's tab style ([`active_tab`]: lifted, underlined or ruled),
+//! The active tab is marked in the theme's tab style (`active_tab`: lifted, underlined or ruled),
 //! the others transparent until hovered. A tab shows a folder icon (a spinner while its
 //! repository is busy), its name, the ahead/behind counts in mono `accent`, and a close button on
 //! hover and on the active tab; a middle click closes too.
@@ -9,8 +9,8 @@
 //! strip has do the longest ones give up width (all of them down to the same width, the shorter
 //! names and the active tab untouched), and only then are names ellipsised, with the full name in
 //! the tooltip (a tooltip that would only repeat a name in full does not show). When even that is
-//! not enough ([`SQUEEZE_FLOOR`]) scrolling makes the room instead, so every tab is as wide as its
-//! name needs again (at most [`SCROLL_CAP`]) and the strip scrolls:
+//! not enough (`SQUEEZE_FLOOR`) scrolling makes the room instead, so every tab is as wide as its
+//! name needs again (at most `SCROLL_CAP`) and the strip scrolls:
 //! scroll buttons before and after it (disabled at the ends), a list of every open tab after
 //! them, the wheel, and a fade at each edge that hides more. The active tab always scrolls into
 //! view when it changes, when tabs open or close and when the strip is resized. The controls

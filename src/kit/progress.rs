@@ -424,7 +424,7 @@ impl Spinner {
         self.size = size;
         self
     }
-    /// What is loading: spoken as "Loading <thing>".
+    /// What is loading: spoken as "Loading `<thing>`".
     pub fn label(mut self, thing: impl Into<String>) -> Self {
         self.label = Some(thing.into());
         self
