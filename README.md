@@ -53,7 +53,7 @@ The bundled fonts need a licence row in the fonts folder's README and the licenc
 ## Community
 
 [Contributing](CONTRIBUTING.md), [support](SUPPORT.md), the [code of conduct](CODE_OF_CONDUCT.md),
-[governance](GOVERNANCE.md) and the [security policy](SECURITY.md).
+[governance](GOVERNANCE.md), the [security policy](SECURITY.md) and the [changelog](CHANGELOG.md).
 
 ## Licence
 

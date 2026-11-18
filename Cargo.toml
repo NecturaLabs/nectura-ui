@@ -1,7 +1,7 @@
 [package]
 name = "nectura-ui"
 description = "NecturaLabs egui component library: design tokens, themes, fonts and the component kit."
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 authors = ["NecturaLabs"]
