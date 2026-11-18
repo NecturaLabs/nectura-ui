@@ -3,6 +3,7 @@
 NecturaLabs' egui component library: design tokens and themes, fonts, motion, in-code illustrations
 and the component kit (buttons, fields, menus, overlays, lists, tabs, toasts, glass surfaces).
 Extracted from [Canopy](https://github.com/NecturaLabs/Canopy). egui 0.36, Rust 2024, MSRV 1.95.
+It is not published to crates.io; use it as a Git submodule.
 
 ## Use it
 
@@ -27,11 +28,15 @@ At start-up install the host and the fonts, then apply a theme:
 ```rust
 struct Host;
 impl nectura_ui::host::Host for Host {
-    // optional: the system's reduce-motion and reduce-transparency answers, the context-menu key
+    // optional: reduce-motion and reduce-transparency answers, context-menu key
 }
 nectura_ui::host::install(&Host);
 nectura_ui::fonts::install(&ctx);
-nectura_ui::theme::apply(&ctx, nectura_ui::theme::ThemeId::Midnight, appearance);
+nectura_ui::theme::apply(
+    &ctx,
+    nectura_ui::theme::ThemeId::Midnight,
+    nectura_ui::theme::Appearance::default(),
+);
 ```
 
 `kit::Shortcut` carries the key hint a component shows (`.shortcut("Ctrl+K")`); convert your own
