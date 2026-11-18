@@ -416,6 +416,9 @@ impl<'t> Core<'t> {
         } else {
             0.0
         };
+        // A text area grows with its text; only past its most rows does it scroll, so only then
+        // does it show a scroll bar (an empty one showed a bar beside its placeholder).
+        let mut overflows = false;
         let height = match &self.kind {
             Kind::Area { rows } | Kind::Code { rows, .. } => {
                 let min = crate::count_f32(*rows.start()) * line_h + 2.0 * pad_y;
@@ -423,6 +426,8 @@ impl<'t> Core<'t> {
                 let content: f32 = ctx
                     .data(|d| d.get_temp(id.with("kit-area-content")))
                     .unwrap_or(min);
+                // Half a point of slack: the text and the row count round differently.
+                overflows = content > max + 0.5;
                 let target = content.clamp(min, max);
                 anim::ease_value(&ctx, id.with("kit-area-height"), target, motion::BASE)
             }
@@ -598,9 +603,15 @@ impl<'t> Core<'t> {
                 Kind::Area { rows } | Kind::Code { rows, .. } => *rows.start(),
                 _ => 1,
             };
+            let bar = if overflows {
+                egui::scroll_area::ScrollBarVisibility::VisibleWhenNeeded
+            } else {
+                egui::scroll_area::ScrollBarVisibility::AlwaysHidden
+            };
             let out = egui::ScrollArea::vertical()
                 .id_salt(id.with("kit-area-scroll"))
                 .max_height(height)
+                .scroll_bar_visibility(bar)
                 .auto_shrink(false)
                 .show(&mut child, |ui| {
                     edit.desired_rows(rows)

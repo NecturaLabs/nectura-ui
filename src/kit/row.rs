@@ -905,7 +905,8 @@ impl<'a> TreeRow<'a> {
         self.roving = Some((list, index));
         self
     }
-    /// Colours the icon by `tone` (a CI check's red, amber or green).
+    /// Colours the icon by `tone` (a CI check's red, amber or green); a row with children and no
+    /// icon colours its chevron instead (a folder holding the current branch).
     pub fn icon_tone(mut self, tone: Tone) -> Self {
         self.icon_tone = Some(tone);
         self
@@ -1087,10 +1088,10 @@ impl<'a> TreeRow<'a> {
         if ui.is_rect_visible(f.rect) {
             let cy = f.rect.center().y;
             if has_children {
-                let color = if f.enabled {
-                    p.text_faint.lerp_to_gamma(p.text_dim, rc.hover)
-                } else {
-                    rc.dim
+                let color = match self.icon_tone {
+                    Some(t) if f.enabled && self.icon.is_none() => t.color(p),
+                    _ if f.enabled => p.text_faint.lerp_to_gamma(p.text_dim, rc.hover),
+                    _ => rc.dim,
                 };
                 paint_chevron(&f.painter, chevron.center(), turn, color);
             }

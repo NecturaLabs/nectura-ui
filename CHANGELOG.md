@@ -8,6 +8,12 @@ the API. Applications pin a commit through their submodule pointer; each release
 
 ## [Unreleased]
 
+### Changed
+
+- `tree_indent` is 14 instead of 20, so nested tree rows sit closer to their parent.
+- `TreeRow::icon_tone` colours a row's chevron when the row has children and no icon.
+- A `TextArea` shows its scroll bar only once its text is taller than its most rows.
+
 ## [0.1.0] - 2026-11-18
 
 ### Added
