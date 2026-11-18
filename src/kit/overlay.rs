@@ -3,7 +3,7 @@
 //! [`Dialog`] and its [`scrim`], and the motion they share: entrances that fade and grow from the
 //! anchor side, and exits that fade out what the layer showed last. Design spec 4.11, 4.13, 4.14.
 //!
-//! **Glass.** [`backdrop`] is the one place the backdrop blur plugs in: every floating layer except
+//! **Glass.** `backdrop` is the one place the backdrop blur plugs in: every floating layer except
 //! tooltips asks it for the blurred backdrop, copies it before its shadow and draws it between
 //! the shadow and its fill, and paints the translucent overlay over it when it gets one. With
 //! Translucent surfaces off, or the blur unavailable, it returns `None` and the layer is opaque.

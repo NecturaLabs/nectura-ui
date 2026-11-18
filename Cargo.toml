@@ -1,11 +1,15 @@
 [package]
 name = "nectura-ui"
 description = "NecturaLabs egui component library: design tokens, themes, fonts and the component kit."
-version = "0.0.0"
+version = "0.1.0"
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.95"
 authors = ["NecturaLabs"]
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/NecturaLabs/nectura-ui"
+readme = "README.md"
+keywords = ["egui", "gui", "design-system", "components", "theme"]
+categories = ["gui"]
 publish = false
 
 [features]

@@ -596,7 +596,7 @@ impl<'a> ListRow<'a> {
         self
     }
     /// The detail is cut last: when the row is too narrow, the label gives way to it (up to
-    /// [`WHOLE_DETAIL_SHARE`] of the row).
+    /// `WHOLE_DETAIL_SHARE` of the row).
     pub fn whole_detail(mut self) -> Self {
         self.whole_detail = true;
         self

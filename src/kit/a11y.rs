@@ -102,7 +102,7 @@ fn unavailable_name(label: &str, role: Role) -> Option<String> {
 }
 
 /// Tells screen readers that the disabled control `response` is unavailable and why: `reason`, if
-/// any, as its description, and on Linux the state in its name ([`unavailable_name`]). Call after
+/// any, as its description, and on Linux the state in its name (`unavailable_name`). Call after
 /// the control's `widget_info`.
 pub fn unavailable(response: &Response, reason: Option<&str>) {
     response.ctx.accesskit_node_builder(response.id, |n| {

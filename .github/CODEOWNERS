@@ -1,0 +1,5 @@
+# Review requests go to the maintainers; the unsafe OpenGL module and the CI configuration always
+# ask for one.
+*                       @Nectura
+/src/kit/glass/gl.rs    @Nectura
+/.github/               @Nectura

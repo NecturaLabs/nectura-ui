@@ -1,0 +1,31 @@
+name: Bug
+description: A component draws, behaves or reads to assistive technology incorrectly.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: What happens
+      description: What you see, with a screenshot of the component where it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The smallest code or gallery steps that show it.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: nectura-ui commit, egui version, Rust version, operating system and theme.
+    validations:
+      required: true

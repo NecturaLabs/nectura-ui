@@ -1,6 +1,6 @@
 # nectura-ui
 
-egui component library shared by NecturaLabs applications (Canopy first). Rust 2024, MSRV 1.91.
+egui component library shared by NecturaLabs applications (Canopy first). Rust 2024, MSRV 1.95.
 
 - The library knows nothing about an application: no Git, no commands. The application's side
   comes through `host::Host` and `kit::Shortcut`.

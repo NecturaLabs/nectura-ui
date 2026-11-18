@@ -7,7 +7,7 @@
 //! counter, stepper) once the edit's hover and focus are known. A label above, and a helper or
 //! error message below, are optional. Text fields always show focus, whatever the input modality.
 //!
-//! **The well** ([`look`]). A field is a well one step off whatever surface it sits on: a
+//! **The well** (`look`). A field is a well one step off whatever surface it sits on: a
 //! translucent wash of `text` in a dark theme, as strong as every text colour allows on every
 //! surface; in a light theme a plate as light as the lightest surface, edged. Either way a field
 //! reads as a field on the pane, the chrome, a card or a dialog alike. Deeper adds the `Field`
@@ -1399,8 +1399,8 @@ impl<'v> NumberField<'v> {
         self.label = Some(text.into());
         self
     }
-    /// The accessible name when no label is shown (the steppers say "Increase <name>" and
-    /// "Decrease <name>" unless [`NumberField::step_names`] names them).
+    /// The accessible name when no label is shown (the steppers say "Increase `<name>`" and
+    /// "Decrease `<name>`" unless [`NumberField::step_names`] names them).
     pub fn name(mut self, text: impl Into<String>) -> Self {
         self.name = Some(text.into());
         self

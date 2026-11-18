@@ -1,5 +1,5 @@
-//! High contrast over any theme. [`derive`] keeps a theme's grounds and its hues, and moves every
-//! colour drawn on them to the contrast ratio the reference ([`theme::CONTRAST_REFERENCE`],
+//! High contrast over any theme. [`derive()`] keeps a theme's grounds and its hues, and moves every
+//! colour drawn on them to the contrast ratio the reference ([`crate::theme::CONTRAST_REFERENCE`],
 //! Midnight at high contrast) keeps against its own ground: lighter on a dark theme, darker on a
 //! light one. A colour that already contrasts more stays as it is. Graph lanes keep the theme's
 //! own colours: they already meet the 3:1 non-text floor on these grounds and must stay apart.

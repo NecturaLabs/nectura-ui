@@ -2,7 +2,7 @@
 
 NecturaLabs' egui component library: design tokens and themes, fonts, motion, in-code illustrations
 and the component kit (buttons, fields, menus, overlays, lists, tabs, toasts, glass surfaces).
-Extracted from [Canopy](https://github.com/NecturaLabs/Canopy). egui 0.36, Rust 2024, MSRV 1.91.
+Extracted from [Canopy](https://github.com/NecturaLabs/Canopy). egui 0.36, Rust 2024, MSRV 1.95.
 
 ## Use it
 
@@ -42,12 +42,18 @@ so an application's parallel tests do not leak into each other. Do not enable it
 
 ## Develop
 
-`tools/check.sh` runs format, clippy and the tests. The component gallery
+`tools/check.sh` runs format, clippy and the tests; CI also builds the documentation, checks
+Rust 1.95 and runs `cargo deny check`. The component gallery
 (`kit::gallery::show`) draws every component in every state; the application passes its own
 sections. Colours, spacing and radii come only from `src/theme.rs`. The only `unsafe` code is the
 backdrop blur's OpenGL calls in `src/kit/glass/gl.rs`.
 
 The bundled fonts need a licence row in the fonts folder's README and the licence text beside them.
+
+## Community
+
+[Contributing](CONTRIBUTING.md), [support](SUPPORT.md), the [code of conduct](CODE_OF_CONDUCT.md),
+[governance](GOVERNANCE.md), the [security policy](SECURITY.md) and the [changelog](CHANGELOG.md).
 
 ## Licence
 
