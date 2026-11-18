@@ -28,7 +28,7 @@ licence, with a row in the fonts folder's README.
 ## Checks
 
 `tools/check.sh` runs `cargo fmt --check`, clippy with `-D warnings` and the tests; CI also builds
-the documentation, checks the minimum Rust version (1.91) and runs `cargo deny check`. A visible
+the documentation, checks the minimum Rust version (1.95) and runs `cargo deny check`. A visible
 change needs screenshots of the component gallery (`kit::gallery::show`) in a dark and a light
 theme. Silence a lint only with `#[expect(lint, reason = "...")]` at the narrowest scope.
 
