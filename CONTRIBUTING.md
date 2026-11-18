@@ -10,11 +10,15 @@ says, never in a public issue.
 1. Find an issue: [`good first issue`](https://github.com/NecturaLabs/nectura-ui/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22)
    and [`help wanted`](https://github.com/NecturaLabs/nectura-ui/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22)
    mark ones that are ready. Say in the issue that you are working on it.
-2. For a new component or a change to a token, open an issue first and agree the design.
+2. Issues are the maintainer's backlog, so only collaborators can open them. For a bug, a new
+   component or a change to a token, start a
+   [discussion](https://github.com/NecturaLabs/nectura-ui/discussions) first and agree the design.
 3. Fork, make a branch, change the code with its tests, and run `tools/check.sh`.
 4. Commit with [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
    (`feat(kit): ...`, `fix(theme): ...`) and a sign-off (`git commit -s`).
-5. Open a pull request against `main`, fill in the template and link the issue.
+5. Open a pull request against `dev`, fill in the template and link the issue. `dev` is the default
+   branch and takes all work; `main` only takes `dev`, and only the maintainer merges. A pull
+   request opened against `main` is moved to `dev`.
 
 ## What fits
 

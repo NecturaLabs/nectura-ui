@@ -1,0 +1,52 @@
+# Work lands in dev; main takes only dev, when a build is released. A pull request into main from
+# any other branch fails the required "Source branch" check, and one opened against main is moved
+# to dev. The pull_request_target job never checks out or runs the pull request's code: it only
+# changes the base through the API.
+name: Branch policy
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize]
+  pull_request_target:
+    branches: [main]
+    types: [opened, reopened]
+
+permissions: {}
+
+jobs:
+  source:
+    name: Source branch
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Only dev merges into main
+        env:
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [[ "$HEAD_REPO" != "$GITHUB_REPOSITORY" || "$HEAD_REF" != dev ]]; then
+            echo "::error::Pull requests into main come only from this repository's dev branch. Open yours against dev."
+            exit 1
+          fi
+          echo "dev into main"
+
+  retarget:
+    name: Move to dev
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      !(github.event.pull_request.head.repo.full_name == github.repository && github.event.pull_request.head.ref == 'dev')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Change the base to dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          gh api -X PATCH "repos/$GITHUB_REPOSITORY/pulls/$PR" -f base=dev --silent
+          gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --silent \
+            -f body="Pull requests go into \`dev\`, so this one now targets \`dev\`. \`main\` only takes \`dev\` when a build is released."
