@@ -74,7 +74,7 @@ impl Fill {
     }
 }
 
-/// The surfaces and material of one [`Style`] (Standard = round-2 concept 1, Deeper = concept 4).
+/// The surfaces and material of one [`Style`] (Standard: flat panes on two-tone chrome; Deeper: lifted panes with soft shadows).
 #[derive(Debug, Clone, Copy)]
 pub struct Surfaces {
     /// Window ground. Standard: also the content ground. Deeper: the gutter colour around cards.

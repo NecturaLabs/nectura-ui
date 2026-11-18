@@ -586,7 +586,7 @@ mod tests {
             .map(|(c, y)| (*y, c.a()))
     }
 
-    /// O1 (owner): rows the data moves slide from where they were, a new row fades in where it
+    /// Rows the data moves slide from where they were, a new row fades in where it
     /// lands and a row that left fades out in its old place, then everything rests where the
     /// layout put it; nothing moves for a re-layout without new data.
     #[test]
