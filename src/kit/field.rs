@@ -426,7 +426,8 @@ impl<'t> Core<'t> {
                 let content: f32 = ctx
                     .data(|d| d.get_temp(id.with("kit-area-content")))
                     .unwrap_or(min);
-                overflows = content > max;
+                // Half a point of slack: the text and the row count round differently.
+                overflows = content > max + 0.5;
                 let target = content.clamp(min, max);
                 anim::ease_value(&ctx, id.with("kit-area-height"), target, motion::BASE)
             }
