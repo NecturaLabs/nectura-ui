@@ -2805,7 +2805,7 @@ pub const COMFORTABLE: Metrics = Metrics {
     sidebar_row_height: 26.0,
     section_header_height: 28.0,
     section_gap: 4.0,
-    tree_indent: 20.0,
+    tree_indent: 14.0,
     history_row_height: 28.0,
     table_header_height: 30.0,
     history_columns: [76.0, 162.0, 116.0, 82.0],
