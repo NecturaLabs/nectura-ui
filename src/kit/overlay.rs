@@ -1148,7 +1148,7 @@ pub(crate) fn popup_origin(rect: Rect, anchor: Rect) -> (Pos2, Vec2) {
 
 // ---------------------------------------------------------------------------------- dialog
 
-/// A dialog's width: confirmations or forms (spec 2.5), or a document to read.
+/// A dialog's width: confirmations or forms (spec 2.5), a document to read, or a wide list.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DialogWidth {
     #[default]
@@ -1157,6 +1157,9 @@ pub enum DialogWidth {
     /// A document (the terms, the privacy policy): its text at the [`reading_measure`] inside
     /// the dialog's padding, never wider than the [`modal_room`].
     Reading,
+    /// A list whose rows carry several columns (a message, an author, a date, an id):
+    /// `dialog_width_wide`, never wider than the [`modal_room`].
+    Wide,
 }
 
 impl DialogWidth {
@@ -1169,6 +1172,7 @@ impl DialogWidth {
             Self::Reading => {
                 (reading_measure(ctx) + 2.0 * m.dialog_pad).min(modal_room(ctx).width())
             }
+            Self::Wide => m.dialog_width_wide.min(modal_room(ctx).width()),
         }
     }
 }
@@ -2945,6 +2949,30 @@ mod tests {
             card.bottom() <= screen.bottom() - m.status_bar_height,
             "{card:?}"
         );
+    }
+
+    /// A wide dialog is `dialog_width_wide`, wider than a form's, and a narrow window keeps it
+    /// inside the modal room.
+    #[test]
+    fn a_wide_dialog_is_wider_than_a_form_within_the_modal_room() {
+        let ctx = context();
+        let m = theme::metrics();
+        let at = |w: f32, h: f32| {
+            let mut out = ctx.run_ui(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(w, h))),
+                    ..Default::default()
+                },
+                |_| {},
+            );
+            out.textures_delta.clear();
+            (DialogWidth::Wide.points(&ctx), modal_room(&ctx).width())
+        };
+        let (wide, _) = at(1440.0, 900.0);
+        assert!((wide - m.dialog_width_wide).abs() < f32::EPSILON, "{wide}");
+        assert!(wide > DialogWidth::Form.points(&ctx));
+        let (narrow, room) = at(600.0, 500.0);
+        assert!(narrow <= room, "{narrow} in {room}");
     }
 
     /// Override O3: a reading dialog is the reading measure plus its padding wide, the measure

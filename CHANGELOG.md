@@ -8,6 +8,11 @@ the API. Applications pin a commit through their submodule pointer; each release
 
 ## [Unreleased]
 
+### Added
+
+- `DialogWidth::Wide`: a dialog width for lists whose rows have several columns, set by
+  `dialog_width_wide` and capped to the modal room.
+
 ### Changed
 
 - **Breaking:** `kit::glass::destroy` takes a `kit::glass::ExitContext`, made with
