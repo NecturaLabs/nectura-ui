@@ -12,12 +12,12 @@
 //!   painter inside its paint callback (egui_glow paints with its context current and hands the
 //!   callback that painter) and in [`destroy`], from the context eframe passes to `App::on_exit`,
 //!   which it keeps current to delete its own objects right after. `Current` has no constructor
-//!   outside this module, and the public way in, `super::destroy`, takes an `ExitContext`, which
-//!   names that call site: safe Rust cannot check that the context is current, so the token
-//!   states the condition instead of leaving it to a doc comment. `destroy` makes one only for
-//!   the context the objects were made in and only on the thread that made them (the thread that
-//!   owns the context); called anywhere else it makes no OpenGL call and leaves the objects to
-//!   their context.
+//!   outside this module. The public way in, `super::destroy`, takes an `ExitContext`, which marks
+//!   that call site but does not prove the context is current: its constructor is safe, so the
+//!   condition rests on the caller, and an application can lint the constructor to one call.
+//!   `destroy` makes a `Current` only for the context the objects were made in and only on the
+//!   thread that made them (the thread that owns the context); called anywhere else it makes no
+//!   OpenGL call and leaves the objects to their context.
 //! - **No memory is shared with the driver except fixed-size outputs.** State queries write into
 //!   values glow sizes for them, and each query names its state through an enum here whose every
 //!   variant has exactly that many values ([`Scalar`], [`Quad`]). Textures are allocated without
@@ -1276,10 +1276,10 @@ fn cover(cur: Current<'_>, plan: &Plan, color: Color32) {
 }
 
 /// Deletes the renderer's objects at exit and marks the blur gone. `gl` is the context inside an
-/// `ExitContext`, the one eframe passed to `App::on_exit`, which is why it may be treated as
-/// current. Deletes only when it is the context the objects were made in and this is the thread
-/// that made them; otherwise it makes no OpenGL call and leaves them to their context (they die
-/// with it).
+/// `ExitContext`, which the caller promises is the one eframe passed to `App::on_exit` and is
+/// current; nothing here can check that. Deletes only when it is the context the objects were made
+/// in and this is the thread that made them; otherwise it makes no OpenGL call and leaves them to
+/// their context (they die with it).
 pub(super) fn destroy(slot: &mut Slot, gl: Option<&glow::Context>) {
     if let Slot::Ready(glass) = slot {
         match gl {
