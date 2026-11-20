@@ -318,19 +318,74 @@ pub fn counters() -> (u64, u64) {
     )
 }
 
+/// The graphics context eframe hands to `App::on_exit`, and the only thing [`destroy`] accepts.
+///
+/// Deleting the blur's OpenGL objects is sound only while the context they were made in is
+/// current on the calling thread. eframe does not make the context current for `App::on_exit`;
+/// it relies on the context the last frame left current, and deletes its own objects the same way
+/// right after, which makes that the one place the teardown belongs. Safe Rust cannot check that
+/// the context is current, so this token does not prove it. It marks the intended call site:
+/// [`destroy`] asks for a token instead of a bare context, which puts the condition in the
+/// signature and makes every call say where it comes from.
+///
+/// Make one with [`ExitContext::from_on_exit`], inside `App::on_exit`, from the argument eframe
+/// passes, and nowhere else. The constructor is safe and public, so nothing stops other code
+/// from making one; an application can forbid the call elsewhere with a lint. What does hold
+/// whatever the caller does: [`destroy`] makes OpenGL calls only for the context the objects
+/// were made in and on the thread that made them, and a second call does nothing.
+///
+/// Without a token, `destroy` does not compile. Stable rustdoc does not check the error code
+/// in the fence, so the doctest only shows that the call is rejected:
+///
+/// ```compile_fail,E0308
+/// use nectura_ui::kit::glass;
+/// glass::destroy(None);
+/// ```
+pub struct ExitContext<'a> {
+    gl: Option<&'a glow::Context>,
+}
+
+impl<'a> ExitContext<'a> {
+    /// The token for the context `App::on_exit` received (`None` when eframe passes none, as
+    /// with a non-OpenGL backend).
+    ///
+    /// Call it only inside `App::on_exit` with that argument. With another context or on another
+    /// thread, [`destroy`] makes no OpenGL call and the blur's objects are left to their context.
+    ///
+    /// # Safety (not enforced)
+    ///
+    /// This function is safe to call, but [`destroy`] is sound only if the context passed here is
+    /// current on the calling thread, as it is inside `App::on_exit`, where the last frame left it
+    /// current. Nothing checks that; the caller upholds it.
+    #[must_use]
+    pub const fn from_on_exit(gl: Option<&'a glow::Context>) -> Self {
+        Self { gl }
+    }
+}
+
+impl std::fmt::Debug for ExitContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExitContext")
+            .field("has_context", &self.gl.is_some())
+            .finish()
+    }
+}
+
 /// Deletes the blur's OpenGL objects and turns the blur off for good.
 ///
-/// # Contract
-///
-/// Call it only from `App::on_exit`, with the context eframe passes there: eframe keeps that
-/// context current on its thread while it deletes its own objects right after. Elsewhere it is
-/// harmless but leaks: the objects are deleted only for the context they were made in and on the
-/// thread that made them; any other call makes no OpenGL call and leaves them to their context.
-/// A second call does nothing.
-pub fn destroy(gl: Option<&glow::Context>) {
+/// Call it from `App::on_exit` with `ExitContext::from_on_exit(gl)`, before eframe deletes its
+/// own objects; see [`ExitContext`] for what the token does and does not guarantee. The objects
+/// are deleted only for the context they were made in and on the thread that made them; with
+/// another context or thread it makes no OpenGL call and leaves them to their context. A second
+/// call does nothing.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the token marks the call site and is passed by value, like the call it marks"
+)]
+pub fn destroy(exit: ExitContext<'_>) {
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         if let Ok(mut slot) = SLOT.lock() {
-            gl::destroy(&mut slot, gl);
+            gl::destroy(&mut slot, exit.gl);
         } else {
             tracing::debug!("translucent surfaces: lock poisoned at exit; objects left");
         }
