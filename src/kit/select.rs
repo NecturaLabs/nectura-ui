@@ -283,8 +283,8 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
         self.loading = loading;
         self
     }
-    /// Said on hover. A value the closed control cuts short says itself instead (its first 600
-    /// characters and how many there are), so this is not shown while one is chosen.
+    /// Said on hover. While the chosen value is one the closed control cuts short, the tooltip says
+    /// that value instead (its first 600 characters and how many there are) and this is not shown.
     pub fn tooltip(mut self, text: impl Into<String>) -> Self {
         self.tooltip = Some(text.into());
         self
