@@ -1109,6 +1109,8 @@ impl<'a> TreeRow<'a> {
                 motion::BASE,
             ),
         };
+        // The label did not fit: the tooltip shows it whole.
+        let mut cut = false;
         if ui.is_rect_visible(f.rect) {
             let cy = f.rect.center().y;
             if has_children {
@@ -1158,15 +1160,14 @@ impl<'a> TreeRow<'a> {
                 (true, false) => theme::medium(),
                 _ => FontFamily::Proportional,
             };
-            paint_text(
-                &f.painter,
-                x,
-                right,
-                cy,
-                &self.label,
-                FontId::new(m.body_size, family),
-                rc.text,
-            );
+            let font = FontId::new(m.body_size, family);
+            cut = f
+                .painter
+                .layout_no_wrap(self.label.clone(), font.clone(), rc.text)
+                .size()
+                .x
+                > right - x;
+            paint_text(&f.painter, x, right, cy, &self.label, font, rc.text);
         }
         f.finish();
         let mut response = f.response;
@@ -1190,12 +1191,21 @@ impl<'a> TreeRow<'a> {
                 n.set_label(name);
             });
         }
-        let response = with_tip(
-            response,
-            f.enabled,
-            self.tooltip.as_deref(),
-            self.disabled_reason.as_deref(),
-        );
+        let response = if cut && f.enabled {
+            let tip = response.kit_tooltip(&self.label).at_pointer();
+            match self.tooltip {
+                Some(t) => tip.detail(t),
+                None => tip,
+            }
+            .show()
+        } else {
+            with_tip(
+                response,
+                f.enabled,
+                self.tooltip.as_deref(),
+                self.disabled_reason.as_deref(),
+            )
+        };
         KitResponse {
             response,
             value: nav,
@@ -2706,6 +2716,56 @@ mod tests {
                 Some(TreeNav::Parent)
             ]
         );
+    }
+
+    /// A tree row whose label is cut shows the whole label on hover, above its own tooltip.
+    #[test]
+    fn a_cut_tree_label_is_shown_whole_on_hover() {
+        let long = "a-branch-name-far-too-long-for-the-sidebar";
+        let row = |ui: &mut Ui, width: f32, tip: Option<&str>| {
+            ui.set_width(width);
+            let mut row = TreeRow::new("cut", 0).icon(icon::GIT_BRANCH).label(long);
+            if let Some(t) = tip {
+                row = row.tooltip(t);
+            }
+            let _ = row.show(ui);
+        };
+        // At 140 pt the row cuts the name; at 600 it does not.
+        for (width, cut) in [(140.0, true), (600.0, false)] {
+            let shapes =
+                super::super::testkit::frame(&ctx(), Vec::new(), |ui| row(ui, width, None));
+            let elided = shapes.iter().any(|c| {
+                matches!(&c.shape, Shape::Text(t) if t.galley.text() == long && t.galley.elided)
+            });
+            assert_eq!(elided, cut, "cut at {width}");
+        }
+        // Galleys keep their whole text: the row's label counts once, the tooltip's once more.
+        let hover = |width: f32, tip: Option<&str>, text: &str| {
+            super::super::testkit::painted_after_hover(pos2(40.0, 10.0), text, |ui| {
+                row(ui, width, tip);
+            })
+        };
+        assert_eq!(
+            hover(140.0, None, long),
+            2,
+            "the whole name, in the tooltip"
+        );
+        assert_eq!(
+            hover(140.0, Some("No upstream"), long),
+            2,
+            "above the row's tip"
+        );
+        assert_eq!(
+            hover(140.0, Some("No upstream"), "No upstream"),
+            1,
+            "the row's tip"
+        );
+        assert_eq!(
+            hover(600.0, Some("No upstream"), long),
+            1,
+            "not repeated when whole"
+        );
+        assert_eq!(hover(600.0, None, long), 1, "no tooltip");
     }
 
     /// A folder drawn with `glyph_chevron` puts its chevron where a sibling leaf's icon is and

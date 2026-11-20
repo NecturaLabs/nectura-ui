@@ -24,6 +24,7 @@ the API. Applications pin a commit through their submodule pointer; each release
   `destroy(ExitContext::from_on_exit(gl))`.
 - `tree_indent` is 14 instead of 20, so nested tree rows sit closer to their parent.
 - `TreeRow::icon_tone` colours a row's chevron when the row has children and no icon.
+- A `TreeRow` whose label is cut shows the whole label on hover, above the row's own tooltip.
 - A `TextArea` shows its scroll bar only once its text is taller than its most rows.
 
 ### Fixed
