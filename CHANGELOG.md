@@ -10,6 +10,11 @@ the API. Applications pin a commit through their submodule pointer; each release
 
 ### Changed
 
+- **Breaking:** `kit::glass::destroy` takes a `kit::glass::ExitContext`, made with
+  `ExitContext::from_on_exit(gl)` from the context eframe passes to `App::on_exit`. Deleting the
+  blur's OpenGL objects is sound only while that context is current, which safe Rust cannot check;
+  the token puts the condition at the call site. Change `destroy(gl)` to
+  `destroy(ExitContext::from_on_exit(gl))`.
 - `tree_indent` is 14 instead of 20, so nested tree rows sit closer to their parent.
 - `TreeRow::icon_tone` colours a row's chevron when the row has children and no icon.
 - A `TextArea` shows its scroll bar only once its text is taller than its most rows.

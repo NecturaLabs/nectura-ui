@@ -318,19 +318,63 @@ pub fn counters() -> (u64, u64) {
     )
 }
 
+/// The graphics context eframe hands to `App::on_exit`, and the only thing [`destroy`] accepts.
+///
+/// Deleting the blur's OpenGL objects is sound only while the context they were made in is
+/// current on the calling thread. eframe guarantees that in `App::on_exit` and nowhere else the
+/// application controls: it keeps the context current there to delete its own objects right after.
+/// Safe Rust cannot check the condition, so the function that relies on it asks for this token
+/// instead of a bare context, which puts the condition in the type and at the call site.
+///
+/// Make one with [`ExitContext::from_on_exit`], inside `App::on_exit`, from the argument eframe
+/// passes, and nowhere else. The token is not `Clone` or `Copy`: [`destroy`] consumes it, so one
+/// exit deletes once. Whatever the caller does, `destroy` still makes OpenGL calls only for the
+/// context the objects were made in and on the thread that made them.
+///
+/// Without a token, `destroy` does not compile:
+///
+/// ```compile_fail,E0308
+/// use nectura_ui::kit::glass;
+/// glass::destroy(None);
+/// ```
+pub struct ExitContext<'a> {
+    gl: Option<&'a glow::Context>,
+}
+
+impl<'a> ExitContext<'a> {
+    /// The token for the context `App::on_exit` received (`None` when eframe passes none, as
+    /// with a non-OpenGL backend).
+    ///
+    /// Call it only inside `App::on_exit` with that argument. Called anywhere else it is
+    /// harmless but leaks: the blur's objects are left to their context.
+    #[must_use]
+    pub const fn from_on_exit(gl: Option<&'a glow::Context>) -> Self {
+        Self { gl }
+    }
+}
+
+impl std::fmt::Debug for ExitContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExitContext")
+            .field("has_context", &self.gl.is_some())
+            .finish()
+    }
+}
+
 /// Deletes the blur's OpenGL objects and turns the blur off for good.
 ///
-/// # Contract
-///
-/// Call it only from `App::on_exit`, with the context eframe passes there: eframe keeps that
-/// context current on its thread while it deletes its own objects right after. Elsewhere it is
-/// harmless but leaks: the objects are deleted only for the context they were made in and on the
-/// thread that made them; any other call makes no OpenGL call and leaves them to their context.
-/// A second call does nothing.
-pub fn destroy(gl: Option<&glow::Context>) {
+/// Call it from `App::on_exit` with `ExitContext::from_on_exit(gl)`, before eframe deletes its
+/// own objects; see [`ExitContext`] for why. Elsewhere it is harmless but leaks: the objects are
+/// deleted only for the context they were made in and on the thread that made them; any other
+/// call makes no OpenGL call and leaves them to their context. A second call does nothing.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the token is spent: a second exit needs a second token"
+)]
+pub fn destroy(exit: ExitContext<'_>) {
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         if let Ok(mut slot) = SLOT.lock() {
-            gl::destroy(&mut slot, gl);
+            gl::destroy(&mut slot, exit.gl);
         } else {
             tracing::debug!("translucent surfaces: lock poisoned at exit; objects left");
         }
