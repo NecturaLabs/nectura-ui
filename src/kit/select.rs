@@ -1392,7 +1392,7 @@ pub(crate) fn gallery(ui: &mut Ui) {
     );
     gallery_caption(
         ui,
-        "A long label is never cut: the control widens to it, then wraps; the list wraps the same way",
+        "A long label widens the control, then wraps onto up to three rows; the list wraps the same way",
     );
     gallery_row(ui, |ui| {
         Select::new(&mut 2_u8, &LONG_LABELS)
@@ -3173,7 +3173,8 @@ mod tests {
             .collect()
     }
 
-    /// #187: a value from a hostile source (a crafted git config value) can be a megabyte of text.
+    /// NecturaLabs/Canopy#187: a value from a hostile source (a crafted git config value) can be a
+    /// megabyte of text.
     /// The closed control showed all of it, wrapped: 457,184 pt tall, and half a second to lay out.
     /// It shows the first characters and an ellipsis, so it is as tall as a label of the cap, and
     /// the whole value stays in what a screen reader hears.
@@ -3333,9 +3334,9 @@ mod tests {
         format!("{head}\u{2026} 1,000,000 characters")
     }
 
-    /// #187: the tooltip of a cut value laid out all of it, wrapped to the tooltip's width: a
-    /// megabyte took 9.7 s to show and painted a galley 394,740 pt tall. It says the first 600
-    /// characters and how many there are.
+    /// NecturaLabs/Canopy#187: the tooltip of a cut value laid out all of it, wrapped to the
+    /// tooltip's width: a megabyte took 9.7 s to show and painted a galley 394,740 pt tall. It
+    /// says the first 600 characters and how many there are.
     #[test]
     fn a_megabyte_value_has_a_short_tooltip() {
         let huge = megabyte();
@@ -3442,8 +3443,8 @@ mod tests {
         }
     }
 
-    /// #257: an option label of a megabyte is cut in the open list as in the closed control: three
-    /// rows, every row as tall as that, the list a few rows tall.
+    /// NecturaLabs/Canopy#257: an option label of a megabyte is cut in the open list as in the
+    /// closed control: three rows, every row as tall as that, the list a few rows tall.
     #[test]
     fn a_megabyte_option_label_keeps_the_open_list_short() {
         let huge = megabyte();
@@ -3468,7 +3469,7 @@ mod tests {
         assert!(s.host.contains_rect(s.list));
     }
 
-    /// #257: the row that cuts its label says it, capped, on hover.
+    /// NecturaLabs/Canopy#257: the row that cuts its label says it, capped, on hover.
     #[test]
     fn a_cut_row_says_its_label_capped_on_hover() {
         let huge = megabyte();
