@@ -14,6 +14,12 @@ the API. Applications pin a commit through their submodule pointer; each release
 - `TreeRow::icon_tone` colours a row's chevron when the row has children and no icon.
 - A `TextArea` shows its scroll bar only once its text is taller than its most rows.
 
+### Fixed
+
+- A `Select` whose value is longer than 4096 characters shows its first characters and an
+  ellipsis, and says the whole value in its tooltip and to a screen reader. A megabyte value made
+  the control hundreds of thousands of points tall and slow to lay out.
+
 ## [0.1.0] - 2026-11-18
 
 ### Added

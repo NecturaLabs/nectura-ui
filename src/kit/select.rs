@@ -9,9 +9,13 @@
 //! a second). Opening with the pointer animates in and closing fades out; from the keyboard both
 //! are instant.
 //!
-//! A select never trims a label. The trigger widens to the value it shows, up to the width the
-//! host has, and then wraps it onto more lines and grows taller; the list is as wide as its
-//! longest row, up to its host, and then wraps the long rows, every row as tall as the tallest.
+//! A select never trims a label of ordinary length. The trigger widens to the value it shows, up to
+//! the width the host has, and then wraps it onto more lines and grows taller; the list is as wide
+//! as its longest row, up to its host, and then wraps the long rows, every row as tall as the
+//! tallest. Past 4096 characters (only a hostile value gets there) the trigger shows the first
+//! ones and an ellipsis, and says the whole value in its tooltip and to a screen reader.
+
+use std::borrow::Cow;
 
 use egui::accesskit::{Invalid, Role};
 use egui::{
@@ -40,6 +44,14 @@ const ITEM_PAD: f32 = theme::SM;
 /// Type-ahead: the buffer clears this long after the last key.
 const TYPE_AHEAD_RESET: f64 = 1.0;
 
+/// The most characters of a value the closed control paints: a longer value shows its first
+/// characters and an ellipsis, and its tooltip and accessible value say all of it. Git caps a ref
+/// name near 4 KB, so at most this many characters, and every realistic label shows whole. Only a
+/// hostile source (a crafted git config value) goes past it: laid out whole and wrapped, a
+/// megabyte made the control 457,184 pt tall and took half a second to lay out, and gave a scroll
+/// area around it a content height of that size (#187).
+const TRIGGER_MAX_CHARS: usize = 4096;
+
 /// What the closed trigger adds after the recommended value (the list marks it with a badge).
 const RECOMMENDED_SUFFIX: &str = " (Recommended)";
 
@@ -67,7 +79,7 @@ pub struct Select<'a, T: PartialEq + Clone> {
     unavailable: Vec<(T, &'a str)>,
     report_reselection: bool,
     /// In the order listed: the recommended value first.
-    options: std::borrow::Cow<'a, [(T, &'a str)]>,
+    options: Cow<'a, [(T, &'a str)]>,
     label: Option<String>,
     name: Option<String>,
     placeholder: String,
@@ -95,7 +107,7 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             described: Vec::new(),
             unavailable: Vec::new(),
             report_reselection: false,
-            options: std::borrow::Cow::Borrowed(options),
+            options: Cow::Borrowed(options),
             label: None,
             name: None,
             placeholder: String::new(),
@@ -148,6 +160,17 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             format!("{label}{RECOMMENDED_SUFFIX}")
         } else {
             label.to_owned()
+        }
+    }
+
+    /// What the closed trigger paints for option `index`: [`Self::trigger_text`] with a label
+    /// longer than [`TRIGGER_MAX_CHARS`] cut short.
+    fn shown_text(&self, index: usize) -> String {
+        let label = clipped(self.options[index].1);
+        if self.marked_when_chosen(index) {
+            format!("{label}{RECOMMENDED_SUFFIX}")
+        } else {
+            label.into_owned()
         }
     }
 
@@ -284,27 +307,30 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
                 // wide for it as for the longest label, whichever is chosen.
                 let marked: Vec<String> = (0..self.options.len())
                     .filter(|&i| self.marked_when_chosen(i))
-                    .map(|i| self.trigger_text(i))
+                    .map(|i| self.shown_text(i))
                     .collect();
-                fit_width(
+                let labels: Vec<Cow<'_, str>> =
+                    self.options.iter().map(|(_, l)| clipped(l)).collect();
+                fit_width_of(
                     ui,
-                    self.options
+                    labels
                         .iter()
-                        .map(|(_, l)| *l)
+                        .map(AsRef::as_ref)
                         .chain(marked.iter().map(String::as_str))
                         .chain([self.placeholder.as_str()]),
                 )
             }
             None => ui.available_width(),
         };
-        // The value shown is never cut short: the trigger widens to it (with its tag, when it is
-        // unavailable) up to the host's width, and beyond that the label wraps.
+        // The value shown is cut short only past `TRIGGER_MAX_CHARS`: the trigger widens to it
+        // (with its tag, when it is unavailable) up to the host's width, and beyond that the label
+        // wraps.
         let current = self.options.iter().position(|(v, _)| v == self.value);
-        let text = current.map_or_else(|| self.placeholder.clone(), |i| self.trigger_text(i));
+        let text = current.map_or_else(|| self.placeholder.clone(), |i| self.shown_text(i));
         let tag = current.and_then(|i| self.note_of(i)).map_or(0.0, |note| {
             Badge::new(note).muted().measure(ui).x + ITEM_PAD
         });
-        let need = fit_width(ui, [text.as_str()]) + tag;
+        let need = fit_width_of(ui, [text.as_str()]) + tag;
         let width = width.max(need.min(ui.available_width()));
         self.width = Some(width);
         let id = self
@@ -460,10 +486,14 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             .map(|note| Badge::new(note).muted());
         let tag_room = tag.as_ref().map_or(0.0, |t| t.measure(ui).x + ITEM_PAD);
         let (text, color) = match chosen {
-            Some(i) if tag.is_some() => (self.options[i].1.to_owned(), placeholder),
-            Some(i) => (self.options[i].1.to_owned(), text_color),
+            Some(i) if tag.is_some() => (clipped(self.options[i].1).into_owned(), placeholder),
+            Some(i) => (clipped(self.options[i].1).into_owned(), text_color),
             None => (self.placeholder.clone(), placeholder),
         };
+        // The value the trigger cuts short, whole (for its tooltip).
+        let cut_value = chosen
+            .map(|i| self.options[i].1)
+            .filter(|label| matches!(clipped(label), Cow::Owned(_)));
         let mark = chosen
             .filter(|&i| self.marked_when_chosen(i))
             .map(|_| RECOMMENDED_SUFFIX);
@@ -1089,13 +1119,16 @@ impl<'a, T: PartialEq + Clone> Select<'a, T> {
             ink.galley(pos2(row.left() + indent, row.top()), g, color);
         }
 
+        // A value cut short says all of itself on hover (unless the control says why it is
+        // unavailable), in place of the caller's own tooltip, and as text the screen does not show,
+        // not as an extra description.
         super::button::tip(
             trigger,
             enabled,
-            self.tooltip.as_deref(),
+            cut_value.or(self.tooltip.as_deref()),
             self.disabled_reason.as_deref(),
             None,
-            true,
+            cut_value.is_none(),
         )
     }
 }
@@ -1145,10 +1178,31 @@ fn caret_room(m: &theme::Metrics) -> f32 {
     theme::SM + m.icon_md + theme::SM
 }
 
-/// The trigger width that shows each of `labels` whole: the widest one plus the trigger's padding
-/// and caret. For a row that sizes a select before showing it; [`Select::fit_to_options`] does
-/// this for the select's own options.
+/// `text` as the closed control paints it: whole up to [`TRIGGER_MAX_CHARS`] characters, else its
+/// first ones and an ellipsis (borrowed when nothing is cut). The cut falls between characters,
+/// and only that many are visited, however long the text is.
+fn clipped(text: &str) -> Cow<'_, str> {
+    if text.chars().nth(TRIGGER_MAX_CHARS).is_none() {
+        return Cow::Borrowed(text);
+    }
+    Cow::Owned(
+        text.chars()
+            .take(TRIGGER_MAX_CHARS)
+            .chain(std::iter::once('\u{2026}'))
+            .collect(),
+    )
+}
+
+/// The trigger width that shows each of `labels` whole (up to 4096 characters of each; the trigger
+/// cuts a longer one): the widest one plus the trigger's padding and caret. For a row that sizes a
+/// select before showing it; [`Select::fit_to_options`] does this for the select's own options.
 pub fn fit_width<'l>(ui: &Ui, labels: impl IntoIterator<Item = &'l str>) -> f32 {
+    let labels: Vec<Cow<'_, str>> = labels.into_iter().map(clipped).collect();
+    fit_width_of(ui, labels.iter().map(AsRef::as_ref))
+}
+
+/// [`fit_width`] for texts the trigger paints as they are (already cut where they were long).
+fn fit_width_of<'l>(ui: &Ui, labels: impl IntoIterator<Item = &'l str>) -> f32 {
     let m = theme::metrics();
     let font = FontId::new(m.body_size, FontFamily::Proportional);
     let widest = labels
@@ -3008,5 +3062,162 @@ mod tests {
             "{label:?} is shown whole beside its badge"
         );
         assert_eq!(listed[0].rows.len(), 1);
+    }
+
+    /// What a select whose chosen value says `label` painted on its first frame: the closed
+    /// control's rectangle, the text it painted and how long the frame took. The context has
+    /// already drawn a short label, so the clock does not count loading the fonts.
+    fn first_frame(
+        label: &str,
+        recommended: bool,
+    ) -> (
+        egui::Rect,
+        Vec<std::sync::Arc<egui::Galley>>,
+        std::time::Duration,
+    ) {
+        let options = [(0_u8, "Off"), (1, label)];
+        let ctx = testkit::ctx();
+        let draw = |ui: &mut Ui, value: &mut u8| {
+            ui.set_width(400.0);
+            let mut select = Select::new(value, &options).id_salt("hostile");
+            if recommended {
+                select = select.recommended(1);
+            }
+            select.show(ui).rect
+        };
+        let mut value = 0_u8;
+        frame(&ctx, Vec::new(), |ui| {
+            draw(ui, &mut value);
+        });
+        value = 1;
+        let mut trigger = egui::Rect::NOTHING;
+        let started = std::time::Instant::now();
+        let shapes = frame(&ctx, Vec::new(), |ui| trigger = draw(ui, &mut value));
+        let took = started.elapsed();
+        let said = galleys(&shapes).into_iter().map(|(_, g)| g).collect();
+        (trigger, said, took)
+    }
+
+    /// The text of a label cut at the cap: its first `TRIGGER_MAX_CHARS` characters and an ellipsis.
+    fn cut(label: &str) -> String {
+        label
+            .chars()
+            .take(TRIGGER_MAX_CHARS)
+            .chain(std::iter::once('\u{2026}'))
+            .collect()
+    }
+
+    /// #187: a value from a hostile source (a crafted git config value) can be a megabyte of text.
+    /// The closed control showed all of it, wrapped: 457,184 pt tall, and half a second to lay out.
+    /// It shows the first characters and an ellipsis, so it is as tall as a label of the cap, and
+    /// the whole value stays in what a screen reader hears.
+    #[test]
+    fn a_megabyte_value_is_cut_in_the_closed_control_which_stays_short() {
+        let word = "refs/heads/feature-";
+        let huge = word.repeat(1_000_000 / word.len());
+        let (trigger, said, took) = first_frame(&huge, false);
+        let shown = cut(&huge);
+        assert!(
+            said.iter().any(|g| g.text() == shown),
+            "the control paints the first {TRIGGER_MAX_CHARS} characters and an ellipsis"
+        );
+        assert!(
+            said.iter().all(|g| g.text().len() < 2 * TRIGGER_MAX_CHARS),
+            "no galley holds the whole value"
+        );
+        let (cap, _, _) = first_frame(&cut(&huge), false);
+        assert!(
+            (trigger.height() - cap.height()).abs() < 0.5,
+            "as tall as the cap's text: {} against {}",
+            trigger.height(),
+            cap.height()
+        );
+        assert!(trigger.height() < 20_000.0, "{}", trigger.height());
+        assert!(
+            took < std::time::Duration::from_millis(250),
+            "the first frame took {took:?}"
+        );
+
+        let options = [(0_u8, "Off"), (1, huge.as_str())];
+        let mut value = 1_u8;
+        let nodes = spoken(&testkit::ctx(), |ui| {
+            Select::new(&mut value, &options)
+                .name("Pull strategy")
+                .id_salt("hostile")
+                .show(ui);
+        });
+        let combo = nodes
+            .iter()
+            .find(|n| n.role == Role::ComboBox)
+            .expect("a combo box");
+        assert_eq!(
+            combo.value.as_deref(),
+            Some(huge.as_str()),
+            "a screen reader gets the whole value"
+        );
+    }
+
+    /// The cut falls between characters, so a multibyte value is never split inside one, and the
+    /// recommended mark still follows the ellipsis.
+    #[test]
+    fn a_long_multibyte_value_is_cut_between_characters_and_keeps_its_mark() {
+        let huge = "\u{65e5}\u{672c}\u{8a9e}".repeat(TRIGGER_MAX_CHARS);
+        let (_, said, _) = first_frame(&huge, true);
+        let shown = format!("{}{RECOMMENDED_SUFFIX}", cut(&huge));
+        assert!(
+            said.iter().any(|g| g.text() == shown),
+            "the cut value, then the mark"
+        );
+    }
+
+    /// A value up to the cap is shown whole, with no ellipsis: git's ref names, the longest labels
+    /// a select has, are capped near 4 KB.
+    #[test]
+    fn a_value_of_a_few_thousand_characters_is_still_shown_whole() {
+        for label in [
+            "b".repeat(TRIGGER_MAX_CHARS),
+            "\u{e9}".repeat(TRIGGER_MAX_CHARS),
+        ] {
+            assert!(label.len() >= 4096, "a label of git's longest ref name");
+            let (_, said, _) = first_frame(&label, false);
+            assert!(
+                said.iter().any(|g| g.text() == label && !g.elided),
+                "the whole label is painted"
+            );
+        }
+    }
+
+    /// What the closed control cuts, its tooltip says in full (at the default Tooltips level).
+    #[test]
+    fn a_cut_value_is_in_full_in_the_tooltip() {
+        let huge = format!("{}tail", "x".repeat(TRIGGER_MAX_CHARS + 50));
+        let options = [(0_u8, "Off"), (1, huge.as_str())];
+        let hover = |text: &str| {
+            testkit::painted_after_hover(pos2(20.0, 20.0), text, |ui| {
+                let mut value = 1_u8;
+                ui.set_width(400.0);
+                Select::new(&mut value, &options).id_salt("tip").show(ui);
+            })
+        };
+        assert_eq!(
+            hover(&cut(&huge)),
+            1,
+            "the control says the first characters"
+        );
+        assert_eq!(hover(&huge), 1, "the tooltip says the whole value");
+    }
+
+    /// A select fitted to its options does not lay out a megabyte to size itself.
+    #[test]
+    fn fitting_a_megabyte_label_measures_only_what_is_shown() {
+        let huge = "w".repeat(1_000_000);
+        let ctx = testkit::ctx();
+        let mut fit = 0.0;
+        let mut cap = 0.0;
+        frame(&ctx, Vec::new(), |ui| {
+            fit = fit_width(ui, [huge.as_str()]);
+            cap = fit_width_of(ui, [cut(&huge).as_str()]);
+        });
+        assert!((fit - cap).abs() < 1.0, "{fit} against {cap}");
     }
 }
