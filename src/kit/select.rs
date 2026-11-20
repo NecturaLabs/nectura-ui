@@ -1246,7 +1246,7 @@ fn tooltip_text(label: &str) -> Cow<'_, str> {
     }
     let head: String = label.chars().take(TOOLTIP_MAX_CHARS).collect();
     Cow::Owned(format!(
-        "{head}\u{2026} {} characters",
+        "{head}\u{2026} ({} characters)",
         grouped(label.chars().count())
     ))
 }
@@ -3278,7 +3278,7 @@ mod tests {
         assert_eq!(
             hover(
                 &huge,
-                &format!("{}\u{2026} 4,150 characters", "x".repeat(600))
+                &format!("{}\u{2026} (4,150 characters)", "x".repeat(600))
             ),
             1,
             "the tooltip says the first 600 characters and the count"
@@ -3331,7 +3331,7 @@ mod tests {
     /// What a tooltip says of [`megabyte`]: its first 600 characters and how many there are.
     fn capped_tip(label: &str) -> String {
         let head: String = label.chars().take(TOOLTIP_MAX_CHARS).collect();
-        format!("{head}\u{2026} 1,000,000 characters")
+        format!("{head}\u{2026} (1,000,000 characters)")
     }
 
     /// NecturaLabs/Canopy#187: the tooltip of a cut value laid out all of it, wrapped to the
@@ -3372,14 +3372,14 @@ mod tests {
         let one_more = "w".repeat(TOOLTIP_MAX_CHARS + 1);
         assert_eq!(
             tooltip_text(&one_more),
-            format!("{whole}\u{2026} 601 characters")
+            format!("{whole}\u{2026} (601 characters)")
         );
         let wide = "\u{65e5}".repeat(1234);
         let said = tooltip_text(&wide);
         assert_eq!(
             said,
             format!(
-                "{}\u{2026} 1,234 characters",
+                "{}\u{2026} (1,234 characters)",
                 "\u{65e5}".repeat(TOOLTIP_MAX_CHARS)
             )
         );
