@@ -35,3 +35,4 @@ form, `type(scope): summary` (CONTRIBUTING.md).
 - [ ] `tools/check.sh` passes (format, clippy with `-D warnings`, tests).
 - [ ] Commits follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) and are signed off (`git commit -s`).
 - [ ] Colours, spacing and radii come only from `src/theme.rs`; no new `unsafe` outside `src/kit/glass/gl.rs`.
+- [ ] Plain wording: the summary leads with what changed and why, without filler or restatement.
