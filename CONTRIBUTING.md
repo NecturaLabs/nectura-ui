@@ -15,10 +15,15 @@ says, never in a public issue.
    [discussion](https://github.com/NecturaLabs/nectura-ui/discussions) first and agree the design.
 3. Fork, make a branch, change the code with its tests, and run `tools/check.sh`.
 4. Commit with [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/)
-   (`feat(kit): ...`, `fix(theme): ...`) and a sign-off (`git commit -s`).
+   (`feat(kit): ...`, `fix(theme): ...`; types `feat`, `fix`, `perf`, `refactor`, `docs`,
+   `test`, `build`, `ci`, `chore`, `style`, `revert`; a subject of at most 72 characters) and a
+   sign-off (`git commit -s`).
 5. Open a pull request against `dev`, fill in the template and link the issue. `dev` is the default
    branch and takes all work; `main` only takes `dev`, and only the maintainer merges. A pull
-   request opened against `main` is moved to `dev`.
+   request opened against `main` is moved to `dev`. A pull request is one focused change, on a
+   branch named `<type>/<topic>`, titled like a commit subject (the Pull request title check asks
+   for it). CI must pass on a branch that is up to date with `dev`: **Update branch** on the pull
+   request does that (keep **Allow edits by maintainers** on, so the maintainer can do it for you).
 
 ## What fits
 
