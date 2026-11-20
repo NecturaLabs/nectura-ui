@@ -736,8 +736,9 @@ const INSET_PAD: Margin = Margin::symmetric(10, 8);
 /// Gap between an empty state's keys and what they do (as between two chords of a sequence).
 const HINT_GAP: f32 = 6.0;
 
-/// An inline note in a pane or dialog: the tone's tint, an icon, optional title, wrapped text and
-/// up to two ghost actions under it, their labels in line with the text. No side bar.
+/// An inline note in a pane or dialog, as wide as the room it is given: the tone's tint, an icon,
+/// optional title, wrapped text and up to two ghost actions under it, their labels in line with
+/// the text. No side bar.
 #[derive(Debug, Clone)]
 #[must_use = "call .show(ui)"]
 pub struct Callout {
@@ -816,6 +817,9 @@ impl Callout {
             .corner_radius(CornerRadius::same(m.radius))
             .inner_margin(CALLOUT_PAD)
             .show(ui, |ui| {
+                // The full width it is given, however short its text, so its edges line up with
+                // the fields around it.
+                ui.set_min_width(ui.available_width());
                 // A group named for the tone, holding the title, text and actions: the icon is
                 // painted, not spoken (a private-use glyph screen readers would spell out).
                 super::a11y::group(ui, egui::accesskit::Role::Group, tone_name(self.tone));
@@ -1961,6 +1965,25 @@ mod tests {
             "Loading",
         ] {
             assert!(labels.iter().any(|l| l == want), "{want}: {labels:?}");
+        }
+    }
+
+    /// A callout spans the width it is given, whatever its text's length, so its edges line up
+    /// with the fields above and below it (Canopy#281, F20).
+    #[test]
+    fn a_callout_spans_the_available_width() {
+        let ctx = ctx();
+        for text in [
+            "Short.",
+            &"A longer message that wraps onto a second line. ".repeat(3),
+        ] {
+            let mut width = 0.0;
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.set_width(400.0);
+                width = Callout::new(Tone::Danger, text).show(ui).rect.width();
+            });
+            out.textures_delta.clear();
+            assert!((width - 400.0).abs() < 0.5, "{width} for {text:?}");
         }
     }
 
