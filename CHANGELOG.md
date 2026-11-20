@@ -12,6 +12,8 @@ the API. Applications pin a commit through their submodule pointer; each release
 
 - `DialogWidth::Wide`: a dialog width for lists whose rows have several columns, set by
   `dialog_width_wide` and capped to the modal room.
+- `TreeRow::glyph_chevron`: a row with children and no icon draws its chevron in the icon
+  column and its label in the label column, so folders and leaves at one level line up.
 
 ### Changed
 
