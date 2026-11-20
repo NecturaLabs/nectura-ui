@@ -1,0 +1,39 @@
+name: Pull request title
+
+# Asks for a title in commit-subject form, `type(scope): summary` (Conventional Commits, the types
+# CONTRIBUTING.md lists, at most 72 characters), so the pull request list reads like the history.
+# A nudge, not a gate: it is not a required check. It reads only the event payload and needs no
+# token, so a fork's pull request runs it the same way, and editing the title runs it again. Dependabot's titles follow the
+# configured prefixes but can run past 72 characters, so bots are left out.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions: {}
+
+concurrency:
+  group: pull-request-title-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  title:
+    name: Conventional title
+    if: github.event.pull_request.user.type != 'Bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Check the title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          types='feat|fix|perf|refactor|docs|test|build|ci|chore|style|revert'
+          if [[ ! $TITLE =~ ^($types)(\([a-z0-9._/-]+\))?!?:\ [^[:space:]] ]]; then
+            echo "::error::Title it like a commit subject, type(scope): summary, with one of: ${types//|/, }. Example: feat(changes): stage individual lines from the diff viewer"
+            exit 1
+          fi
+          if (( ${#TITLE} > 72 )); then
+            echo "::error::The title is ${#TITLE} characters; keep it to 72, like a commit subject."
+            exit 1
+          fi
+          echo "Title is in commit-subject form."
