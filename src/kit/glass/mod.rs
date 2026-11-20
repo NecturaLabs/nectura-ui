@@ -321,11 +321,12 @@ pub fn counters() -> (u64, u64) {
 /// The graphics context eframe hands to `App::on_exit`, and the only thing [`destroy`] accepts.
 ///
 /// Deleting the blur's OpenGL objects is sound only while the context they were made in is
-/// current on the calling thread. eframe keeps the context current in `App::on_exit` to delete
-/// its own objects right after, which makes that the one place the teardown belongs. Safe Rust
-/// cannot check that the context is current, so this token does not prove it. It marks the
-/// intended call site: [`destroy`] asks for a token instead of a bare context, which puts the
-/// condition in the signature and makes every call say where it comes from.
+/// current on the calling thread. eframe does not make the context current for `App::on_exit`;
+/// it relies on the context the last frame left current, and deletes its own objects the same way
+/// right after, which makes that the one place the teardown belongs. Safe Rust cannot check that
+/// the context is current, so this token does not prove it. It marks the intended call site:
+/// [`destroy`] asks for a token instead of a bare context, which puts the condition in the
+/// signature and makes every call say where it comes from.
 ///
 /// Make one with [`ExitContext::from_on_exit`], inside `App::on_exit`, from the argument eframe
 /// passes, and nowhere else. The constructor is safe and public, so nothing stops other code
@@ -354,8 +355,8 @@ impl<'a> ExitContext<'a> {
     /// # Safety (not enforced)
     ///
     /// This function is safe to call, but [`destroy`] is sound only if the context passed here is
-    /// current on the calling thread, as it is inside `App::on_exit`. Nothing checks that; the
-    /// caller upholds it.
+    /// current on the calling thread, as it is inside `App::on_exit`, where the last frame left it
+    /// current. Nothing checks that; the caller upholds it.
     #[must_use]
     pub const fn from_on_exit(gl: Option<&'a glow::Context>) -> Self {
         Self { gl }
