@@ -16,9 +16,13 @@ the API. Applications pin a commit through their submodule pointer; each release
 
 ### Fixed
 
-- A `Select` whose value is longer than 4096 characters shows its first characters and an
-  ellipsis, and says the whole value in its tooltip and to a screen reader. A megabyte value made
-  the control hundreds of thousands of points tall and slow to lay out.
+- A `Select` no longer lays out a label of any length whole. The closed control and each row of
+  its open list lay out at most the first 4096 characters of a label and paint at most three rows,
+  ending in an ellipsis; a megabyte value made the control hundreds of thousands of points tall and
+  slow to lay out, and a megabyte option did the same to the list. A cut label says itself on hover:
+  its first 600 characters and, when there are more, how many characters it has. A screen reader
+  still gets the whole label. A cut value's tooltip replaces the one set with `Select::tooltip`.
+- `Select::fit_to_options` is no wider than the room its host has.
 
 ## [0.1.0] - 2026-11-18
 
