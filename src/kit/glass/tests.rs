@@ -953,8 +953,8 @@ fn objects_are_deleted_only_in_their_context_on_their_thread() {
 fn destroying_twice_is_harmless_and_turns_glass_off() {
     let ctx = egui::Context::default();
     setup(&ctx, ThemeId::Midnight, true, Backend::Supported);
-    destroy(None);
-    destroy(None);
+    destroy(ExitContext::from_on_exit(None));
+    destroy(ExitContext::from_on_exit(None));
     assert!(!available());
     assert!(describe().contains("window closed"), "{}", describe());
 }

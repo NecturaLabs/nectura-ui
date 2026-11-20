@@ -42,13 +42,15 @@ single_use_lifetimes = "warn"
 trivial_casts = "warn"
 trivial_numeric_casts = "warn"
 unit_bindings = "warn"
+unreachable_pub = "warn"
 unused_import_braces = "warn"
 unused_lifetimes = "warn"
 unused_macro_rules = "warn"
 unused_qualifications = "warn"
 # Not enabled:
-# - unreachable_pub: canopy-app is a binary, where `pub` in a private module already means
-#   crate-visible; 1,129 of its 1,139 findings were there.
+# - missing_docs: 518 public items have no doc comment (fields 203, methods 182, associated
+#   functions 44, variants 40, constants 47, functions 2); writing them is its own change
+#   (issue #201 stays open for it).
 # - let_underscore_drop: `let _ = sender.send(..)` and friends drop the value on purpose (105).
 # - unused_crate_dependencies: fires for every test target that does not use every dependency.
 
