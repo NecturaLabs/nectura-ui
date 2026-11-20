@@ -861,6 +861,7 @@ pub struct TreeRow<'a> {
     cursor: bool,
     enabled: bool,
     toggle_on_click: bool,
+    glyph_chevron: bool,
     tooltip: Option<String>,
     disabled_reason: Option<String>,
     roving: Option<(Roving, usize)>,
@@ -894,11 +895,19 @@ impl<'a> TreeRow<'a> {
             cursor: false,
             enabled: true,
             toggle_on_click: false,
+            glyph_chevron: false,
             tooltip: None,
             disabled_reason: None,
             roving: None,
             force: None,
         }
+    }
+    /// A row with children and no icon draws its chevron in the column where a leaf's icon goes
+    /// and its label where a leaf's label goes, so folders and leaves at one level share both
+    /// columns (a sidebar's branch folders).
+    pub fn glyph_chevron(mut self) -> Self {
+        self.glyph_chevron = true;
+        self
     }
     /// The row is row `index` of a tree with one Tab stop ([`Roving`]).
     pub fn roving(mut self, list: Roving, index: usize) -> Self {
@@ -1006,8 +1015,23 @@ impl<'a> TreeRow<'a> {
             + CHEVRON_INSET
             + self.indent
             + crate::count_f32(self.depth) * m.tree_indent;
+        // Where a leaf's icon goes.
+        let glyph_x = chevron_x + CHEVRON_WIDTH + CHEVRON_GAP;
+        // The width of the icon column, when the chevron stands in it.
+        let glyph_column = (self.glyph_chevron && has_children && self.icon.is_none()).then(|| {
+            ui.painter()
+                .layout_no_wrap(
+                    icon::CARET_RIGHT.to_owned(),
+                    theme::icon_font(m.icon_md, rc.selected),
+                    Color32::PLACEHOLDER,
+                )
+                .size()
+                .x
+        });
+        let chevron_center_x =
+            glyph_column.map_or(chevron_x + CHEVRON_WIDTH / 2.0, |w| glyph_x + w / 2.0);
         let chevron = Rect::from_center_size(
-            pos2(chevron_x + CHEVRON_WIDTH / 2.0, f.rect.center().y),
+            pos2(chevron_center_x, f.rect.center().y),
             vec2(16.0, f.rect.height()),
         );
         let mut toggled = false;
@@ -1085,6 +1109,8 @@ impl<'a> TreeRow<'a> {
                 motion::BASE,
             ),
         };
+        // The label did not fit: the tooltip shows it whole.
+        let mut cut = false;
         if ui.is_rect_visible(f.rect) {
             let cy = f.rect.center().y;
             if has_children {
@@ -1095,7 +1121,10 @@ impl<'a> TreeRow<'a> {
                 };
                 paint_chevron(&f.painter, chevron.center(), turn, color);
             }
-            let mut x = chevron_x + CHEVRON_WIDTH + CHEVRON_GAP;
+            let mut x = glyph_x;
+            if let Some(w) = glyph_column {
+                x += w + GAP;
+            }
             if let Some(g) = &self.icon {
                 let color = match self.icon_tone {
                     Some(t) if f.enabled => t.color(p),
@@ -1131,15 +1160,14 @@ impl<'a> TreeRow<'a> {
                 (true, false) => theme::medium(),
                 _ => FontFamily::Proportional,
             };
-            paint_text(
-                &f.painter,
-                x,
-                right,
-                cy,
-                &self.label,
-                FontId::new(m.body_size, family),
-                rc.text,
-            );
+            let font = FontId::new(m.body_size, family);
+            cut = f
+                .painter
+                .layout_no_wrap(self.label.clone(), font.clone(), rc.text)
+                .size()
+                .x
+                > right - x;
+            paint_text(&f.painter, x, right, cy, &self.label, font, rc.text);
         }
         f.finish();
         let mut response = f.response;
@@ -1163,12 +1191,21 @@ impl<'a> TreeRow<'a> {
                 n.set_label(name);
             });
         }
-        let response = with_tip(
-            response,
-            f.enabled,
-            self.tooltip.as_deref(),
-            self.disabled_reason.as_deref(),
-        );
+        let response = if cut && f.enabled {
+            let tip = response.kit_tooltip(&self.label).at_pointer();
+            match self.tooltip {
+                Some(t) => tip.detail(t),
+                None => tip,
+            }
+            .show()
+        } else {
+            with_tip(
+                response,
+                f.enabled,
+                self.tooltip.as_deref(),
+                self.disabled_reason.as_deref(),
+            )
+        };
         KitResponse {
             response,
             value: nav,
@@ -2678,6 +2715,108 @@ mod tests {
                 None,
                 Some(TreeNav::Parent)
             ]
+        );
+    }
+
+    /// A tree row whose label is cut shows the whole label on hover, above its own tooltip.
+    #[test]
+    fn a_cut_tree_label_is_shown_whole_on_hover() {
+        let long = "a-branch-name-far-too-long-for-the-sidebar";
+        let row = |ui: &mut Ui, width: f32, tip: Option<&str>| {
+            ui.set_width(width);
+            let mut row = TreeRow::new("cut", 0).icon(icon::GIT_BRANCH).label(long);
+            if let Some(t) = tip {
+                row = row.tooltip(t);
+            }
+            let _ = row.show(ui);
+        };
+        // At 140 pt the row cuts the name; at 600 it does not.
+        for (width, cut) in [(140.0, true), (600.0, false)] {
+            let shapes =
+                super::super::testkit::frame(&ctx(), Vec::new(), |ui| row(ui, width, None));
+            let elided = shapes.iter().any(|c| {
+                matches!(&c.shape, Shape::Text(t) if t.galley.text() == long && t.galley.elided)
+            });
+            assert_eq!(elided, cut, "cut at {width}");
+        }
+        // Galleys keep their whole text: the row's label counts once, the tooltip's once more.
+        let hover = |width: f32, tip: Option<&str>, text: &str| {
+            super::super::testkit::painted_after_hover(pos2(40.0, 10.0), text, |ui| {
+                row(ui, width, tip);
+            })
+        };
+        assert_eq!(
+            hover(140.0, None, long),
+            2,
+            "the whole name, in the tooltip"
+        );
+        assert_eq!(
+            hover(140.0, Some("No upstream"), long),
+            2,
+            "above the row's tip"
+        );
+        assert_eq!(
+            hover(140.0, Some("No upstream"), "No upstream"),
+            1,
+            "the row's tip"
+        );
+        assert_eq!(
+            hover(600.0, Some("No upstream"), long),
+            1,
+            "not repeated when whole"
+        );
+        assert_eq!(hover(600.0, None, long), 1, "no tooltip");
+    }
+
+    /// A folder drawn with `glyph_chevron` puts its chevron where a sibling leaf's icon is and
+    /// its label where the leaf's label is.
+    #[test]
+    fn a_glyph_chevron_shares_the_leaf_columns() {
+        let ctx = ctx();
+        let mut texts: Vec<(String, Rect, Rect)> = Vec::new();
+        let mut open = true;
+        for _ in 0..2 {
+            let mut out = ctx.run_ui(egui::RawInput::default(), |ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                let _ = TreeRow::new("folder", 1)
+                    .glyph_chevron()
+                    .open(&mut open)
+                    .label("fix")
+                    .show(ui);
+                let _ = TreeRow::new("leaf", 1)
+                    .icon(icon::GIT_BRANCH)
+                    .label("main")
+                    .show(ui);
+            });
+            out.textures_delta.clear();
+            texts = out
+                .shapes
+                .iter()
+                .filter_map(|c| match &c.shape {
+                    // Labels by where their text starts, glyphs by their ink.
+                    Shape::Text(t) => Some((
+                        t.galley.text().to_owned(),
+                        Rect::from_min_max(t.pos, t.visual_bounding_rect().max),
+                        t.visual_bounding_rect(),
+                    )),
+                    _ => None,
+                })
+                .collect();
+        }
+        let find = |text: &str| {
+            texts
+                .iter()
+                .find(|(t, _, _)| t == text)
+                .unwrap_or_else(|| panic!("{text}: {texts:?}"))
+        };
+        assert!(
+            (find("fix").1.left() - find("main").1.left()).abs() < 0.5,
+            "{texts:?}"
+        );
+        assert!(
+            (find(icon::CARET_RIGHT).2.center().x - find(icon::GIT_BRANCH).2.center().x).abs()
+                < 1.0,
+            "{texts:?}"
         );
     }
 
