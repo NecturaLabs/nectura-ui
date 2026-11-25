@@ -17,15 +17,15 @@ publish = false
 testkit = []
 
 [dependencies]
-eframe = { version = "0.36", default-features = false, features = ["glow"] }
-egui = "0.36"
+eframe = { version = "0.37", default-features = false, features = ["glow"] }
+egui = "0.37"
 egui-phosphor = { version = "0.14", features = ["regular", "fill"] }
 tracing = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 
 [dev-dependencies]
 # winit needs a platform backend to build; the application that uses the library picks its own.
-eframe = { version = "0.36", default-features = false, features = ["glow", "wayland", "x11"] }
+eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11"] }
 
 [lints.rust]
 # Denied, not forbidden, so the one owner-approved module can allow it: the backdrop blur's OpenGL
